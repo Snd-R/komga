@@ -333,6 +333,7 @@ export default Vue.extend({
       showToolbars: false,
       showSettings: false,
       showHelp: false,
+      upscale: false,
       goToPage: 1,
       settings: {
         pageLayout: PagedReaderLayout.SINGLE_PAGE,
@@ -634,9 +635,9 @@ export default Vue.extend({
     },
     getPageUrl (page: PageDto): string {
       if (!this.supportedMediaTypes.includes(page.mediaType)) {
-        return bookPageUrl(this.bookId, page.number, this.convertTo)
+        return bookPageUrl(this.bookId, page.number, this.convertTo, this.upscale)
       } else {
-        return bookPageUrl(this.bookId, page.number)
+        return bookPageUrl(this.bookId, page.number, undefined, this.upscale)
       }
     },
     jumpToPrevious () {
@@ -742,6 +743,11 @@ export default Vue.extend({
       this.pageLayout = enumValues[i]
       const text = this.$i18n.t(this.pageLayout)
       this.sendNotification(`${this.$t('bookreader.cycling_page_layout')}: ${text}`)
+    },
+    toggleUpscale() {
+     this.upscale = !this.upscale
+      this.pages.forEach((p: PageDtoWithUrl) => p['url'] = this.getPageUrl(p))
+      this.sendNotification(`toggled upscale: ${this.upscale}`)
     },
     toggleToolbars () {
       this.showToolbars = !this.showToolbars

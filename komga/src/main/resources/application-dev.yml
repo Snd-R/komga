@@ -7,6 +7,7 @@ komga:
   libraries-scan-startup: true
   database:
     file: ":memory:"
+  waifu2x-ncnn-vulkan-path: "/usr/bin/waifu2x-ncnn-vulkan"
 
 spring:
   datasource:

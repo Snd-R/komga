@@ -17,6 +17,10 @@ export const shortcutsSettings = [
   new Shortcut('bookreader.shortcuts.cycle_scale',
     (ctx: any) => ctx.cycleScale()
     , 'c'),
+
+  new Shortcut('toggle upscale',
+    (ctx: any) => ctx.toggleUpscale()
+    , 'u'),
 ]
 
 export const shortcutsMenus = [

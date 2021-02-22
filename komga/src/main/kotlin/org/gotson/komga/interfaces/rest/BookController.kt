@@ -318,7 +318,8 @@ class BookController(
     @Parameter(description = "Convert the image to the provided format.", schema = Schema(allowableValues = ["jpeg", "png"]))
     @RequestParam(value = "convert", required = false) convertTo: String?,
     @Parameter(description = "If set to true, pages will start at index 0. If set to false, pages will start at index 1.")
-    @RequestParam(value = "zero_based", defaultValue = "false") zeroBasedIndex: Boolean
+    @RequestParam(value = "zero_based", defaultValue = "false") zeroBasedIndex: Boolean,
+    @RequestParam(value = "upscale", defaultValue = "false") upscale: Boolean
   ): ResponseEntity<ByteArray> =
     bookRepository.findByIdOrNull((bookId))?.let { book ->
       val media = mediaRepository.findById(bookId)
@@ -339,7 +340,7 @@ class BookController(
 
         val pageNum = if (zeroBasedIndex) pageNumber + 1 else pageNumber
 
-        val pageContent = bookLifecycle.getBookPage(book, pageNum, convertFormat)
+        val pageContent = bookLifecycle.getBookPage(book, pageNum, convertFormat, upscale)
 
         ResponseEntity.ok()
           .contentType(getMediaTypeOrDefault(pageContent.mediaType))

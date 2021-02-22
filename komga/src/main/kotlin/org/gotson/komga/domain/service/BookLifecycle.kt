@@ -17,6 +17,7 @@ import org.gotson.komga.domain.persistence.ReadProgressRepository
 import org.gotson.komga.domain.persistence.ThumbnailBookRepository
 import org.gotson.komga.infrastructure.image.ImageConverter
 import org.gotson.komga.infrastructure.image.ImageType
+import org.gotson.komga.infrastructure.image.ImageUpscaler
 import org.springframework.stereotype.Service
 import java.io.File
 import java.nio.file.Files
@@ -33,7 +34,8 @@ class BookLifecycle(
   private val thumbnailBookRepository: ThumbnailBookRepository,
   private val readListRepository: ReadListRepository,
   private val bookAnalyzer: BookAnalyzer,
-  private val imageConverter: ImageConverter
+  private val imageConverter: ImageConverter,
+  private val upscaler: ImageUpscaler
 ) {
 
   fun analyzeAndPersist(book: Book) {
@@ -151,45 +153,60 @@ class BookLifecycle(
     MediaNotReadyException::class,
     IndexOutOfBoundsException::class
   )
-  fun getBookPage(book: Book, number: Int, convertTo: ImageType? = null, resizeTo: Int? = null): BookPageContent {
+  fun getBookPage(book: Book, number: Int, convertTo: ImageType? = null, upscale: Boolean = false, resizeTo: Int? = null): BookPageContent {
     val media = mediaRepository.findById(book.id)
+
     val pageContent = bookAnalyzer.getPageContent(book, number)
     val pageMediaType = media.pages[number - 1].mediaType
 
     if (resizeTo != null) {
       val targetFormat = ImageType.JPEG
-      val convertedPage = try {
-        imageConverter.resizeImage(pageContent, targetFormat.imageIOFormat, resizeTo)
-      } catch (e: Exception) {
-        logger.error(e) { "Resize page #$number of book $book to $resizeTo: failed" }
-        throw e
-      }
+      val convertedPage = resizeImage(pageContent, resizeTo, targetFormat)
       return BookPageContent(number, convertedPage, targetFormat.mediaType)
     } else {
-      convertTo?.let {
-        val msg = "Convert page #$number of book $book from $pageMediaType to ${it.mediaType}"
-        if (!imageConverter.supportedReadMediaTypes.contains(pageMediaType)) {
-          throw ImageConversionException("$msg: unsupported read format $pageMediaType")
-        }
-        if (!imageConverter.supportedWriteMediaTypes.contains(it.mediaType)) {
-          throw ImageConversionException("$msg: unsupported write format ${it.mediaType}")
-        }
-        if (pageMediaType == it.mediaType) {
-          logger.warn { "$msg: same format, no need for conversion" }
-          return@let
-        }
-
-        logger.info { msg }
-        val convertedPage = try {
-          imageConverter.convertImage(pageContent, it.imageIOFormat)
-        } catch (e: Exception) {
-          logger.error(e) { "$msg: conversion failed" }
-          throw e
-        }
-        return BookPageContent(number, convertedPage, it.mediaType)
+      var modifiedContent = pageContent
+      var modifiedMediaType = pageMediaType
+      if (upscale) {
+        modifiedContent = upscaler.upscale(pageContent)
+      }
+      if (convertTo != null) {
+        modifiedContent = convertImage(modifiedContent, pageMediaType, convertTo)
+        modifiedMediaType = convertTo.mediaType
       }
 
-      return BookPageContent(number, pageContent, pageMediaType)
+      return BookPageContent(number, modifiedContent, modifiedMediaType)
+    }
+  }
+
+  private fun resizeImage(image: ByteArray, resizeTo: Int, targetFormat: ImageType): ByteArray {
+    return try {
+      imageConverter.resizeImage(image, targetFormat.imageIOFormat, resizeTo)
+    } catch (e: Exception) {
+      logger.error(e) { "Resize to $resizeTo: failed" }
+      throw e
+    }
+  }
+
+  private fun convertImage(image: ByteArray, pageMediaType: String, convertTo: ImageType): ByteArray {
+    val msg = "Convert page from $pageMediaType to ${convertTo.mediaType}"
+
+    if (!imageConverter.supportedReadMediaTypes.contains(pageMediaType)) {
+      throw ImageConversionException("$msg: unsupported read format $pageMediaType")
+    }
+    if (!imageConverter.supportedWriteMediaTypes.contains(convertTo.mediaType)) {
+      throw ImageConversionException("$msg: unsupported write format ${convertTo.mediaType}")
+    }
+    if (pageMediaType == convertTo.mediaType) {
+      logger.warn { "$msg: same format, no need for conversion" }
+      return image
+    }
+
+    logger.info { msg }
+    try {
+      return imageConverter.convertImage(image, convertTo.imageIOFormat)
+    } catch (e: Exception) {
+      logger.error(e) { "$msg: conversion failed" }
+      throw e
     }
   }
 

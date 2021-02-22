@@ -23,6 +23,8 @@ class KomgaProperties {
 
   var database = Database()
 
+  var waifu2xNcnnVulkanPath: String? = null
+
   class RememberMe {
     @get:NotBlank
     var key: String? = null
