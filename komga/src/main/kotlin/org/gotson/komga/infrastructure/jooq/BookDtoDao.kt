@@ -24,6 +24,9 @@ import org.jooq.Condition
 import org.jooq.DSLContext
 import org.jooq.Record
 import org.jooq.ResultQuery
+import org.jooq.SelectJoinStep
+import org.jooq.SelectOnConditionStep
+import org.jooq.Table
 import org.jooq.impl.DSL
 import org.jooq.impl.DSL.inline
 import org.jooq.impl.DSL.noCondition
@@ -93,7 +96,7 @@ class BookDtoDao(
   ): Page<BookDto> {
     val conditions = rlb.READLIST_ID.eq(readListId).and(search.toCondition())
 
-    return findAll(conditions, userId, pageable, search.toJoinConditions().copy(selectReadListNumber = true), filterOnLibraryIds, search.searchTerm)
+    return findAll(conditions, userId, pageable, search.toJoinConditions().copy(joinReadLists = true), filterOnLibraryIds, search.searchTerm)
   }
 
   private fun findAll(
@@ -110,16 +113,16 @@ class BookDtoDao(
     val count = dsl.fetchCount(
       dsl.selectDistinct(b.ID)
         .from(b)
-        .leftJoin(m).on(b.ID.eq(m.BOOK_ID))
-        .leftJoin(d).on(b.ID.eq(d.BOOK_ID))
-        .leftJoin(r).on(b.ID.eq(r.BOOK_ID)).and(readProgressCondition(userId))
         .leftJoin(sd).on(b.SERIES_ID.eq(sd.SERIES_ID))
-        .apply { filterOnLibraryIds?.let { and(b.LIBRARY_ID.`in`(it)) } }
-        .apply { if (joinConditions.tag) leftJoin(bt).on(b.ID.eq(bt.BOOK_ID)) }
-        .apply { if (joinConditions.selectReadListNumber) leftJoin(rlb).on(b.ID.eq(rlb.BOOK_ID)) }
-        .apply { if (joinConditions.author) leftJoin(a).on(b.ID.eq(a.BOOK_ID)) }
+        .readProgressJoin(joinConditions).and(readProgressCondition(userId))
+        .mediaJoin(joinConditions)
+        .metadataJoin(joinConditions)
+        .apply { if (joinConditions.joinTags) tagJoin(joinConditions) }
+        .apply { if (joinConditions.joinAuthors) authorJoin(joinConditions) }
+        .apply { if (joinConditions.joinReadLists) leftJoin(rlb).on(b.ID.eq(rlb.BOOK_ID)) }
         .where(conditions)
         .and(searchCondition)
+        .apply { filterOnLibraryIds?.let { and(b.LIBRARY_ID.`in`(it)) } }
         .groupBy(b.ID),
     )
 
@@ -271,7 +274,7 @@ class BookDtoDao(
       .apply { filterOnLibraryIds?.let { and(b.LIBRARY_ID.`in`(it)) } }
       .fetchOne(0, Int::class.java)
 
-    return selectBase(userId, JoinConditions(selectReadListNumber = true))
+    return selectBase(userId, JoinConditions(joinReadLists = true))
       .where(rlb.READLIST_ID.eq(readListId))
       .apply { filterOnLibraryIds?.let { and(b.LIBRARY_ID.`in`(it)) } }
       .orderBy(rlb.NUMBER.let { if (next) it.asc() else it.desc() })
@@ -281,24 +284,27 @@ class BookDtoDao(
       .firstOrNull()
   }
 
-  private fun selectBase(userId: String, joinConditions: JoinConditions = JoinConditions()) =
+  private fun selectBase(
+    userId: String,
+    joinConditions: JoinConditions = JoinConditions(),
+  ) =
     dsl.selectDistinct(
       *b.fields(),
       *m.fields(),
       *d.fields(),
       *r.fields(),
       sd.TITLE,
-    ).apply { if (joinConditions.selectReadListNumber) select(rlb.NUMBER) }
+    ).apply { if (joinConditions.joinReadLists) select(rlb.NUMBER) }
       .from(b)
-      .leftJoin(m).on(b.ID.eq(m.BOOK_ID))
-      .leftJoin(d).on(b.ID.eq(d.BOOK_ID))
-      .leftJoin(r).on(b.ID.eq(r.BOOK_ID)).and(readProgressCondition(userId))
       .leftJoin(sd).on(b.SERIES_ID.eq(sd.SERIES_ID))
-      .apply { if (joinConditions.tag) leftJoin(bt).on(b.ID.eq(bt.BOOK_ID)) }
-      .apply { if (joinConditions.selectReadListNumber) leftJoin(rlb).on(b.ID.eq(rlb.BOOK_ID)) }
-      .apply { if (joinConditions.author) leftJoin(a).on(b.ID.eq(a.BOOK_ID)) }
+      .readProgressJoin(joinConditions).and(readProgressCondition(userId))
+      .mediaJoin(joinConditions)
+      .metadataJoin(joinConditions)
+      .apply { if (joinConditions.joinTags) tagJoin(joinConditions) }
+      .apply { if (joinConditions.joinAuthors) authorJoin(joinConditions) }
+      .apply { if (joinConditions.joinReadLists) leftJoin(rlb).on(b.ID.eq(rlb.BOOK_ID)) }
 
-  private fun ResultQuery<Record>.fetchAndMap() =
+  private fun ResultQuery<out Record>.fetchAndMap() =
     fetch()
       .map { rec ->
         val br = rec.into(b)
@@ -332,13 +338,10 @@ class BookDtoDao(
 
     if (!libraryIds.isNullOrEmpty()) c = c.and(b.LIBRARY_ID.`in`(libraryIds))
     if (!seriesIds.isNullOrEmpty()) c = c.and(b.SERIES_ID.`in`(seriesIds))
-    if (!mediaStatus.isNullOrEmpty()) c = c.and(m.STATUS.`in`(mediaStatus))
     if (deleted == true) c = c.and(b.DELETED_DATE.isNotNull)
     if (deleted == false) c = c.and(b.DELETED_DATE.isNull)
-    if (releasedAfter != null) c = c.and(d.RELEASE_DATE.gt(releasedAfter))
-    if (!tags.isNullOrEmpty()) c = c.and(bt.TAG.collate(SqliteUdfDataSource.collationUnicode3).`in`(tags))
 
-    if (readStatus != null) {
+    if (readStatus != null && readStatus.any { it == ReadStatus.UNREAD }) {
       val cr = readStatus.map {
         when (it) {
           ReadStatus.UNREAD -> r.COMPLETED.isNull
@@ -350,27 +353,60 @@ class BookDtoDao(
       c = c.and(cr)
     }
 
-    if (!authors.isNullOrEmpty()) {
+    return c
+  }
+
+  private fun BookSearchWithReadProgress.toJoinConditions(): JoinConditions {
+    val mediaTable = mediaStatus?.let {
+      dsl.select(*m.fields()).from(m).where(m.STATUS.`in`(mediaStatus)).asTable(m)
+    }
+    val metadataTable = releasedAfter?.let {
+      dsl.select(*d.fields()).from(d).where(d.RELEASE_DATE.gt(releasedAfter)).asTable(d)
+    }
+    val tagsTable = tags?.let {
+      dsl.select(*bt.fields()).from(bt).where(bt.TAG.collate(SqliteUdfDataSource.collationUnicode3).`in`(tags)).asTable(bt)
+    }
+
+    val readProgressTable = if (readStatus != null && readStatus.none { it == ReadStatus.UNREAD }) {
+      val cr = readStatus.map {
+        when (it) {
+          ReadStatus.READ -> r.COMPLETED.isTrue
+          ReadStatus.IN_PROGRESS -> r.COMPLETED.isFalse
+          else -> throw IllegalArgumentException()
+        }
+      }.reduce { acc, condition -> acc.or(condition) }
+      dsl.select(*r.fields()).from(r).where(cr).asTable(r)
+    } else null
+
+    val authorTable = authors?.let {
       var ca = noCondition()
       authors.forEach {
         ca = ca.or(a.NAME.equalIgnoreCase(it.name).and(a.ROLE.equalIgnoreCase(it.role)))
       }
-      c = c.and(ca)
+      dsl.select(*a.fields()).from(a).where(ca).asTable(m)
     }
 
-    return c
+    return JoinConditions(
+      joinTags = !tags.isNullOrEmpty(),
+      joinAuthors = !authors.isNullOrEmpty(),
+      mediaTableFilter = mediaTable,
+      metadataTableFilter = metadataTable,
+      tagsTableFilter = tagsTable,
+      readProgressTableFilter = readProgressTable,
+      authorTableFilter = authorTable,
+    )
   }
 
-  private fun BookSearchWithReadProgress.toJoinConditions() =
-    JoinConditions(
-      tag = !tags.isNullOrEmpty(),
-      author = !authors.isNullOrEmpty(),
-    )
-
   private data class JoinConditions(
-    val selectReadListNumber: Boolean = false,
-    val tag: Boolean = false,
-    val author: Boolean = false,
+    val joinTags: Boolean = false,
+    val joinAuthors: Boolean = false,
+    val joinReadLists: Boolean = false,
+
+    val mediaTableFilter: Table<Record>? = null,
+    val metadataTableFilter: Table<Record>? = null,
+    val tagsTableFilter: Table<Record>? = null,
+    val readProgressTableFilter: Table<Record>? = null,
+    val authorTableFilter: Table<Record>? = null,
   )
 
   private fun BookRecord.toDto(media: MediaDto, metadata: BookMetadataDto, readProgress: ReadProgressDto?, seriesTitle: String) =
@@ -433,4 +469,24 @@ class BookDtoDao(
       created = createdDate,
       lastModified = lastModifiedDate,
     )
+
+  private fun SelectJoinStep<*>.readProgressJoin(joinConditions: JoinConditions): SelectOnConditionStep<out Record> =
+    joinConditions.readProgressTableFilter?.let { innerJoin(it).on(b.ID.eq(it.field(r.BOOK_ID))) }
+      ?: leftJoin(r).on(b.ID.eq(r.BOOK_ID))
+
+  private fun SelectJoinStep<*>.mediaJoin(joinConditions: JoinConditions): SelectOnConditionStep<out Record> =
+    joinConditions.mediaTableFilter?.let { innerJoin(it).on(b.ID.eq(it.field(m.BOOK_ID))) }
+      ?: leftJoin(m).on(b.ID.eq(m.BOOK_ID))
+
+  private fun SelectJoinStep<*>.metadataJoin(joinConditions: JoinConditions): SelectOnConditionStep<out Record> =
+    joinConditions.metadataTableFilter?.let { innerJoin(it).on(b.ID.eq(it.field(d.BOOK_ID))) }
+      ?: leftJoin(d).on(b.ID.eq(d.BOOK_ID))
+
+  private fun SelectJoinStep<*>.tagJoin(joinConditions: JoinConditions): SelectOnConditionStep<out Record> =
+    joinConditions.tagsTableFilter?.let { innerJoin(it).on(b.ID.eq(it.field(bt.BOOK_ID))) }
+      ?: leftJoin(bt).on(b.ID.eq(bt.BOOK_ID))
+
+  private fun SelectJoinStep<*>.authorJoin(joinConditions: JoinConditions): SelectOnConditionStep<out Record> =
+    joinConditions.authorTableFilter?.let { innerJoin(it).on(b.ID.eq(it.field(a.BOOK_ID))) }
+      ?: leftJoin(a).on(b.ID.eq(a.BOOK_ID))
 }
