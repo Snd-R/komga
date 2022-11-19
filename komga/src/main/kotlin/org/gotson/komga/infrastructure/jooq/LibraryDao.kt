@@ -6,13 +6,14 @@ import org.gotson.komga.jooq.Tables
 import org.gotson.komga.jooq.tables.records.LibraryRecord
 import org.jooq.DSLContext
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 import java.net.URL
 import java.time.LocalDateTime
 import java.time.ZoneId
 
 @Component
 class LibraryDao(
-  private val dsl: DSLContext
+  private val dsl: DSLContext,
 ) : LibraryRepository {
 
   private val l = Tables.LIBRARY
@@ -23,7 +24,7 @@ class LibraryDao(
       ?.toDomain()
 
   override fun findById(libraryId: String): Library =
-    findOne(libraryId)
+    findOne(libraryId)!!
       .toDomain()
 
   private fun findOne(libraryId: String) =
@@ -36,30 +37,25 @@ class LibraryDao(
       .fetchInto(l)
       .map { it.toDomain() }
 
-  override fun findAllById(libraryIds: Collection<String>): Collection<Library> =
+  override fun findAllByIds(libraryIds: Collection<String>): Collection<Library> =
     dsl.selectFrom(l)
       .where(l.ID.`in`(libraryIds))
       .fetchInto(l)
       .map { it.toDomain() }
 
+  @Transactional
   override fun delete(libraryId: String) {
-    dsl.transaction { config ->
-      with(config.dsl()) {
-        deleteFrom(ul).where(ul.LIBRARY_ID.eq(libraryId)).execute()
-        deleteFrom(l).where(l.ID.eq(libraryId)).execute()
-      }
-    }
+    dsl.deleteFrom(ul).where(ul.LIBRARY_ID.eq(libraryId)).execute()
+    dsl.deleteFrom(l).where(l.ID.eq(libraryId)).execute()
   }
 
+  @Transactional
   override fun deleteAll() {
-    dsl.transaction { config ->
-      with(config.dsl()) {
-        deleteFrom(ul).execute()
-        deleteFrom(l).execute()
-      }
-    }
+    dsl.deleteFrom(ul).execute()
+    dsl.deleteFrom(l).execute()
   }
 
+  @Transactional
   override fun insert(library: Library) {
     dsl.insertInto(l)
       .set(l.ID, library.id)
@@ -71,12 +67,23 @@ class LibraryDao(
       .set(l.IMPORT_COMICINFO_READLIST, library.importComicInfoReadList)
       .set(l.IMPORT_EPUB_BOOK, library.importEpubBook)
       .set(l.IMPORT_EPUB_SERIES, library.importEpubSeries)
+      .set(l.IMPORT_MYLAR_SERIES, library.importMylarSeries)
       .set(l.IMPORT_LOCAL_ARTWORK, library.importLocalArtwork)
+      .set(l.IMPORT_BARCODE_ISBN, library.importBarcodeIsbn)
       .set(l.SCAN_FORCE_MODIFIED_TIME, library.scanForceModifiedTime)
       .set(l.SCAN_DEEP, library.scanDeep)
+      .set(l.REPAIR_EXTENSIONS, library.repairExtensions)
+      .set(l.CONVERT_TO_CBZ, library.convertToCbz)
+      .set(l.EMPTY_TRASH_AFTER_SCAN, library.emptyTrashAfterScan)
+      .set(l.SERIES_COVER, library.seriesCover.toString())
+      .set(l.HASH_FILES, library.hashFiles)
+      .set(l.HASH_PAGES, library.hashPages)
+      .set(l.ANALYZE_DIMENSIONS, library.analyzeDimensions)
+      .set(l.UNAVAILABLE_DATE, library.unavailableDate)
       .execute()
   }
 
+  @Transactional
   override fun update(library: Library) {
     dsl.update(l)
       .set(l.NAME, library.name)
@@ -87,9 +94,19 @@ class LibraryDao(
       .set(l.IMPORT_COMICINFO_READLIST, library.importComicInfoReadList)
       .set(l.IMPORT_EPUB_BOOK, library.importEpubBook)
       .set(l.IMPORT_EPUB_SERIES, library.importEpubSeries)
+      .set(l.IMPORT_MYLAR_SERIES, library.importMylarSeries)
       .set(l.IMPORT_LOCAL_ARTWORK, library.importLocalArtwork)
+      .set(l.IMPORT_BARCODE_ISBN, library.importBarcodeIsbn)
       .set(l.SCAN_FORCE_MODIFIED_TIME, library.scanForceModifiedTime)
       .set(l.SCAN_DEEP, library.scanDeep)
+      .set(l.REPAIR_EXTENSIONS, library.repairExtensions)
+      .set(l.CONVERT_TO_CBZ, library.convertToCbz)
+      .set(l.EMPTY_TRASH_AFTER_SCAN, library.emptyTrashAfterScan)
+      .set(l.SERIES_COVER, library.seriesCover.toString())
+      .set(l.HASH_FILES, library.hashFiles)
+      .set(l.HASH_PAGES, library.hashPages)
+      .set(l.ANALYZE_DIMENSIONS, library.analyzeDimensions)
+      .set(l.UNAVAILABLE_DATE, library.unavailableDate)
       .set(l.LAST_MODIFIED_DATE, LocalDateTime.now(ZoneId.of("Z")))
       .where(l.ID.eq(library.id))
       .execute()
@@ -107,11 +124,22 @@ class LibraryDao(
       importComicInfoReadList = importComicinfoReadlist,
       importEpubBook = importEpubBook,
       importEpubSeries = importEpubSeries,
+      importMylarSeries = importMylarSeries,
       importLocalArtwork = importLocalArtwork,
+      importBarcodeIsbn = importBarcodeIsbn,
       scanForceModifiedTime = scanForceModifiedTime,
       scanDeep = scanDeep,
+      repairExtensions = repairExtensions,
+      convertToCbz = convertToCbz,
+      emptyTrashAfterScan = emptyTrashAfterScan,
+      seriesCover = Library.SeriesCover.valueOf(seriesCover),
+      hashFiles = hashFiles,
+      hashPages = hashPages,
+      analyzeDimensions = analyzeDimensions,
+
+      unavailableDate = unavailableDate,
       id = id,
       createdDate = createdDate.toCurrentTimeZone(),
-      lastModifiedDate = lastModifiedDate.toCurrentTimeZone()
+      lastModifiedDate = lastModifiedDate.toCurrentTimeZone(),
     )
 }

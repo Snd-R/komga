@@ -1,15 +1,24 @@
-import { AxiosInstance } from 'axios'
+import {AxiosInstance} from 'axios'
+import {
+  AuthenticationActivityDto,
+  PasswordUpdateDto,
+  UserCreationDto,
+  UserDto,
+  UserUpdateDto,
+} from '@/types/komga-users'
 
-const API_USERS = '/api/v1/users'
+const qs = require('qs')
+
+const API_USERS = '/api/v2/users'
 
 export default class KomgaUsersService {
   private http: AxiosInstance
 
-  constructor (http: AxiosInstance) {
+  constructor(http: AxiosInstance) {
     this.http = http
   }
 
-  async getMeWithAuth (login: string, password: string): Promise<UserDto> {
+  async getMeWithAuth(login: string, password: string): Promise<UserDto> {
     try {
       return (await this.http.get(
         `${API_USERS}/me`,
@@ -27,14 +36,16 @@ export default class KomgaUsersService {
           msg = 'Invalid authentication'
         }
       }
-      if (e.response.data.message) {
+      if (e.response?.data?.message) {
         msg += `: ${e.response.data.message}`
+      } else {
+        msg += `: ${e.message}`
       }
       throw new Error(msg)
     }
   }
 
-  async getMe (): Promise<UserDto> {
+  async getMe(): Promise<UserDto> {
     try {
       return (await this.http.get(`${API_USERS}/me`)).data
     } catch (e) {
@@ -46,7 +57,7 @@ export default class KomgaUsersService {
     }
   }
 
-  async getAll (): Promise<UserWithSharedLibrariesDto[]> {
+  async getAll(): Promise<UserDto[]> {
     try {
       return (await this.http.get(`${API_USERS}`)).data
     } catch (e) {
@@ -58,7 +69,7 @@ export default class KomgaUsersService {
     }
   }
 
-  async postUser (user: UserCreationDto): Promise<UserDto> {
+  async postUser(user: UserCreationDto): Promise<UserDto> {
     try {
       return (await this.http.post(API_USERS, user)).data
     } catch (e) {
@@ -70,9 +81,9 @@ export default class KomgaUsersService {
     }
   }
 
-  async patchUserRoles (userId: string, roles: RolesUpdateDto): Promise<UserDto> {
+  async patchUser(userId: string, patch: UserUpdateDto) {
     try {
-      return (await this.http.patch(`${API_USERS}/${userId}`, roles)).data
+      await this.http.patch(`${API_USERS}/${userId}`, patch)
     } catch (e) {
       let msg = `An error occurred while trying to patch user '${userId}'`
       if (e.response.data.message) {
@@ -82,7 +93,7 @@ export default class KomgaUsersService {
     }
   }
 
-  async deleteUser (user: UserDto) {
+  async deleteUser(user: UserDto) {
     try {
       await this.http.delete(`${API_USERS}/${user.id}`)
     } catch (e) {
@@ -94,11 +105,11 @@ export default class KomgaUsersService {
     }
   }
 
-  async patchMePassword (newPassword: PasswordUpdateDto) {
+  async patchUserPassword(user: UserDto, newPassword: PasswordUpdateDto) {
     try {
-      return (await this.http.patch(`${API_USERS}/me/password`, newPassword)).data
+      await this.http.patch(`${API_USERS}/${user.id}/password`, newPassword)
     } catch (e) {
-      let msg = `An error occurred while trying to update password for current user`
+      let msg = `An error occurred while trying to update password for user ${user.email}`
       if (e.response.data.message) {
         msg += `: ${e.response.data.message}`
       }
@@ -106,11 +117,11 @@ export default class KomgaUsersService {
     }
   }
 
-  async patchUserSharedLibraries (user: UserDto, sharedLibrariesUpdateDto: SharedLibrariesUpdateDto) {
+  async logout() {
     try {
-      return (await this.http.patch(`${API_USERS}/${user.id}/shared-libraries`, sharedLibrariesUpdateDto)).data
+      await this.http.post('api/logout')
     } catch (e) {
-      let msg = `An error occurred while trying to update shared libraries for user ${user.email}`
+      let msg = 'An error occurred while trying to logout'
       if (e.response.data.message) {
         msg += `: ${e.response.data.message}`
       }
@@ -118,11 +129,41 @@ export default class KomgaUsersService {
     }
   }
 
-  async logout () {
+  async getMyAuthenticationActivity(pageRequest?: PageRequest): Promise<Page<AuthenticationActivityDto>> {
     try {
-      await this.http.post(`${API_USERS}/logout`)
+      return (await this.http.get(`${API_USERS}/me/authentication-activity`, {
+        params: pageRequest,
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
+      })).data
     } catch (e) {
-      let msg = `An error occurred while trying to logout`
+      let msg = 'An error occurred while trying to retrieve authentication activity'
+      if (e.response.data.message) {
+        msg += `: ${e.response.data.message}`
+      }
+      throw new Error(msg)
+    }
+  }
+
+  async getAuthenticationActivity(pageRequest?: PageRequest): Promise<Page<AuthenticationActivityDto>> {
+    try {
+      return (await this.http.get(`${API_USERS}/authentication-activity`, {
+        params: pageRequest,
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
+      })).data
+    } catch (e) {
+      let msg = 'An error occurred while trying to retrieve authentication activity'
+      if (e.response.data.message) {
+        msg += `: ${e.response.data.message}`
+      }
+      throw new Error(msg)
+    }
+  }
+
+  async getLatestAuthenticationActivityForUser(user: UserDto): Promise<AuthenticationActivityDto> {
+    try {
+      return (await this.http.get(`${API_USERS}/${user.id}/authentication-activity/latest`)).data
+    } catch (e) {
+      let msg = `An error occurred while trying to retrieve latest authentication activity for user ${user.email}`
       if (e.response.data.message) {
         msg += `: ${e.response.data.message}`
       }

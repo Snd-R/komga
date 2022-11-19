@@ -17,7 +17,7 @@ class FileSystemScannerTest {
     librariesScanDirectoryExclusions = listOf("#recycle")
   }
 
-  private val scanner = FileSystemScanner(komgaProperties)
+  private val scanner = FileSystemScanner(komgaProperties, emptyList(), emptyList())
 
   @Test
   fun `given unavailable root directory when scanning then throw exception`() {
@@ -41,7 +41,7 @@ class FileSystemScannerTest {
       Files.createDirectory(root)
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
 
       // then
       assertThat(scan).isEmpty()
@@ -59,12 +59,34 @@ class FileSystemScannerTest {
       files.forEach { Files.createFile(root.resolve(it)) }
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
       val series = scan.keys.first()
       val books = scan.getValue(series)
 
       // then
       assertThat(scan).hasSize(1)
+      assertThat(books).hasSize(2)
+      assertThat(books.map { it.name }).containsExactlyInAnyOrderElementsOf(files.map { FilenameUtils.removeExtension(it) })
+    }
+  }
+
+  @Test
+  fun `given root directory as filesystem root when scanning then return 1 series containing those files as books`() {
+    Jimfs.newFileSystem(Configuration.unix()).use { fs ->
+      // given
+      val root = fs.getPath("/")
+
+      val files = listOf("file1.cbz", "file2.cbz")
+      files.forEach { Files.createFile(root.resolve(it)) }
+
+      // when
+      val scan = scanner.scanRootFolder(root).series
+      val series = scan.keys.first()
+      val books = scan.getValue(series)
+
+      // then
+      assertThat(scan).hasSize(1)
+      assertThat(series.name).isEqualTo("/")
       assertThat(books).hasSize(2)
       assertThat(books.map { it.name }).containsExactlyInAnyOrderElementsOf(files.map { FilenameUtils.removeExtension(it) })
     }
@@ -81,7 +103,7 @@ class FileSystemScannerTest {
       files.forEach { Files.createFile(root.resolve(it)) }
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
       val series = scan.keys.first()
       val books = scan.getValue(series)
 
@@ -101,7 +123,7 @@ class FileSystemScannerTest {
 
       val subDirs = listOf(
         "series1" to listOf("volume1.cbz", "volume2.cbz"),
-        "series2" to listOf("book1.cbz", "book2.cbz")
+        "series2" to listOf("book1.cbz", "book2.cbz"),
       ).toMap()
 
       subDirs.forEach { (dir, files) ->
@@ -109,7 +131,7 @@ class FileSystemScannerTest {
       }
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
       val series = scan.keys
 
       // then
@@ -117,7 +139,95 @@ class FileSystemScannerTest {
 
       assertThat(series.map { it.name }).containsExactlyInAnyOrderElementsOf(subDirs.keys)
       series.forEach { s ->
-        assertThat(scan.getValue(s).map { it.name }).containsExactlyInAnyOrderElementsOf(subDirs[s.name]?.map { FilenameUtils.removeExtension(it) })
+        assertThat(
+          scan.getValue(s).map { it.name },
+        ).containsExactlyInAnyOrderElementsOf(
+          subDirs[s.name]?.map {
+            FilenameUtils.removeExtension(
+              it,
+            )
+          },
+        )
+      }
+    }
+  }
+
+  @Test
+  fun `given symlink root directory when scanning then return series and books`() {
+    Jimfs.newFileSystem(Configuration.unix()).use { fs ->
+      // given
+      val root = fs.getPath("/root")
+      Files.createDirectory(root)
+
+      val link = fs.getPath("/link")
+      Files.createSymbolicLink(link, root)
+
+      val subDirs = listOf(
+        "series1" to listOf("volume1.cbz", "volume2.cbz"),
+        "series2" to listOf("book1.cbz", "book2.cbz"),
+      ).toMap()
+
+      subDirs.forEach { (dir, files) ->
+        makeSubDir(root, dir, files)
+      }
+
+      // when
+      val scan = scanner.scanRootFolder(link).series
+      val series = scan.keys
+
+      // then
+      assertThat(scan).hasSize(2)
+
+      assertThat(series.map { it.name }).containsExactlyInAnyOrderElementsOf(subDirs.keys)
+      series.forEach { s ->
+        assertThat(
+          scan.getValue(s).map { it.name },
+        ).containsExactlyInAnyOrderElementsOf(
+          subDirs[s.name]?.map {
+            FilenameUtils.removeExtension(
+              it,
+            )
+          },
+        )
+      }
+    }
+  }
+
+  @Test
+  fun `given root directory with symlinks when scanning then return series and books`() {
+    Jimfs.newFileSystem(Configuration.unix()).use { fs ->
+      // given
+      val root = fs.getPath("/root")
+      Files.createDirectory(root)
+
+      val subDirs = listOf(
+        "series1" to listOf("volume1.cbz", "volume2.cbz"),
+        "series2" to listOf("book1.cbz", "book2.cbz"),
+      ).toMap()
+
+      subDirs.forEach { (dir, files) ->
+        makeSubDir(root, dir, files)
+        Files.createSymbolicLink(root.resolve("${dir}_link"), root.resolve(dir))
+      }
+
+      // when
+      val scan = scanner.scanRootFolder(root).series
+      val series = scan.keys
+
+      // then
+      assertThat(scan).hasSize(4)
+
+      assertThat(series.map { it.name }).containsExactlyInAnyOrderElementsOf(subDirs.keys + subDirs.keys.map { "${it}_link" })
+      series.forEach { s ->
+        assertThat(
+          scan.getValue(s).map { it.name },
+        ).containsExactlyInAnyOrderElementsOf(
+          subDirs[s.name.removeSuffix("_link")]?.map {
+            FilenameUtils.removeExtension(
+              it,
+            )
+          },
+        )
       }
     }
   }
@@ -135,7 +245,7 @@ class FileSystemScannerTest {
       makeSubDir(recycle, "subtrash", listOf("trash2.cbz"))
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
 
       // then
       assertThat(scan).hasSize(2)
@@ -158,7 +268,7 @@ class FileSystemScannerTest {
       makeSubDir(hidden, "subhidden", listOf("hidden2.cbz"))
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
 
       // then
       assertThat(scan).hasSize(2)
@@ -179,7 +289,7 @@ class FileSystemScannerTest {
       makeSubDir(dir1, "subdir1", listOf("comic2.cbz", ".comic2.cbz"))
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
 
       // then
       assertThat(scan).hasSize(2)
@@ -199,7 +309,7 @@ class FileSystemScannerTest {
       makeSubDir(root, "dir1", listOf("comic.Cbz", "comic2.CBR"))
 
       // when
-      val scan = scanner.scanRootFolder(root)
+      val scan = scanner.scanRootFolder(root).series
 
       // then
       assertThat(scan).hasSize(1)

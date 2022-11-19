@@ -1,8 +1,10 @@
 komga:
+  workspace: localdb
   database:
-    file: ./localdb.sqlite
-
+    file: \${komga.config-dir}/\${komga.workspace}.sqlite
+  lucene:
+    data-directory: \${komga.config-dir}/lucene/\${komga.workspace}
 spring:
-  datasource:
-    url: jdbc:h2:./testdb
-
+  artemis:
+    embedded:
+      data-directory: \${komga.config-dir}/artemis/\${komga.workspace}

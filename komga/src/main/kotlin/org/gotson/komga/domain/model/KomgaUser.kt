@@ -1,6 +1,8 @@
 package org.gotson.komga.domain.model
 
 import com.github.f4b6a3.tsid.TsidCreator
+import org.gotson.komga.language.lowerNotBlank
+import java.io.Serializable
 import java.time.LocalDateTime
 import javax.validation.constraints.Email
 import javax.validation.constraints.NotBlank
@@ -11,7 +13,7 @@ const val ROLE_FILE_DOWNLOAD = "FILE_DOWNLOAD"
 const val ROLE_PAGE_STREAMING = "PAGE_STREAMING"
 
 data class KomgaUser(
-  @Email
+  @Email(regexp = ".+@.+\\..+")
   @NotBlank
   val email: String,
   @NotBlank
@@ -21,17 +23,20 @@ data class KomgaUser(
   val rolePageStreaming: Boolean = true,
   val sharedLibrariesIds: Set<String> = emptySet(),
   val sharedAllLibraries: Boolean = true,
-  val id: String = TsidCreator.getTsidString256(),
+  val restrictions: ContentRestrictions = ContentRestrictions(),
+  val id: String = TsidCreator.getTsid256().toString(),
   override val createdDate: LocalDateTime = LocalDateTime.now(),
-  override val lastModifiedDate: LocalDateTime = LocalDateTime.now()
-) : Auditable() {
+  override val lastModifiedDate: LocalDateTime = createdDate,
+) : Auditable, Serializable {
 
-  fun roles(): Set<String> {
-    val roles = mutableSetOf(ROLE_USER)
-    if (roleAdmin) roles.add(ROLE_ADMIN)
-    if (roleFileDownload) roles.add(ROLE_FILE_DOWNLOAD)
-    if (rolePageStreaming) roles.add(ROLE_PAGE_STREAMING)
-    return roles
+  @delegate:Transient
+  val roles: Set<String> by lazy {
+    buildSet {
+      add(ROLE_USER)
+      if (roleAdmin) add(ROLE_ADMIN)
+      if (roleFileDownload) add(ROLE_FILE_DOWNLOAD)
+      if (rolePageStreaming) add(ROLE_PAGE_STREAMING)
+    }
   }
 
   /**
@@ -54,14 +59,6 @@ data class KomgaUser(
       else -> null
     }
 
-  fun canAccessBook(book: Book): Boolean {
-    return sharedAllLibraries || sharedLibrariesIds.any { it == book.libraryId }
-  }
-
-  fun canAccessSeries(series: Series): Boolean {
-    return sharedAllLibraries || sharedLibrariesIds.any { it == series.libraryId }
-  }
-
   fun canAccessLibrary(libraryId: String): Boolean =
     sharedAllLibraries || sharedLibrariesIds.any { it == libraryId }
 
@@ -69,7 +66,39 @@ data class KomgaUser(
     return sharedAllLibraries || sharedLibrariesIds.any { it == library.id }
   }
 
-  override fun toString(): String {
-    return "KomgaUser(email='$email', roleAdmin=$roleAdmin, roleFileDownload=$roleFileDownload, rolePageStreaming=$rolePageStreaming, sharedLibrariesIds=$sharedLibrariesIds, sharedAllLibraries=$sharedAllLibraries, id=$id, createdDate=$createdDate, lastModifiedDate=$lastModifiedDate)"
+  fun isContentAllowed(ageRating: Int? = null, sharingLabels: Set<String> = emptySet()): Boolean {
+    val labels = sharingLabels.lowerNotBlank().toSet()
+
+    val ageAllowed =
+      if (restrictions.ageRestriction?.restriction == AllowExclude.ALLOW_ONLY)
+        ageRating != null && ageRating <= restrictions.ageRestriction.age
+      else null
+
+    val labelAllowed =
+      if (restrictions.labelsAllow.isNotEmpty())
+        restrictions.labelsAllow.intersect(labels).isNotEmpty()
+      else null
+
+    val allowed = when {
+      ageAllowed == null -> labelAllowed != false
+      labelAllowed == null -> ageAllowed != false
+      else -> ageAllowed != false || labelAllowed != false
+    }
+    if (!allowed) return false
+
+    val ageDenied =
+      if (restrictions.ageRestriction?.restriction == AllowExclude.EXCLUDE)
+        ageRating != null && ageRating >= restrictions.ageRestriction.age
+      else false
+
+    val labelDenied =
+      if (restrictions.labelsExclude.isNotEmpty())
+        restrictions.labelsExclude.intersect(labels).isNotEmpty()
+      else false
+
+    return !ageDenied && !labelDenied
   }
+
+  override fun toString(): String =
+    "KomgaUser(email='$email', roleAdmin=$roleAdmin, roleFileDownload=$roleFileDownload, rolePageStreaming=$rolePageStreaming, sharedLibrariesIds=$sharedLibrariesIds, sharedAllLibraries=$sharedAllLibraries, restrictions=$restrictions, id='$id', createdDate=$createdDate, lastModifiedDate=$lastModifiedDate)"
 }

@@ -13,6 +13,9 @@ module.exports = {
     'vue/no-unused-components': process.env.NODE_ENV === 'production' ? 'error' : 'off',
     'no-fallthrough': 'off',
     'comma-dangle': ['error', 'always-multiline'],
+    'semi': ['error', 'never'],
+    'quotes': ['error', 'single'],
+    'vue/valid-v-slot': 'off',
   },
   parserOptions: {
     parser: '@typescript-eslint/parser',

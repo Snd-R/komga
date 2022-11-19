@@ -3,7 +3,7 @@
     <v-expansion-panel
       v-for="(f, key) in filtersOptions"
       :key="key"
-      :disabled="f.values.length === 0"
+      :disabled="(f.values && f.values.length === 0) && !f.search"
     >
       <v-expansion-panel-header class="text-uppercase">
         <v-icon
@@ -16,7 +16,35 @@
         {{ f.name }}
       </v-expansion-panel-header>
       <v-expansion-panel-content class="no-padding">
-        <v-list dense>
+        <search-box-base
+          v-if="f.search"
+          :search-function="f.search"
+          @selected="click(key, $event)"
+        >
+          <template v-slot:item="data">
+            <v-list-item-content class="text-body-2">{{ data.item }}</v-list-item-content>
+          </template>
+        </search-box-base>
+
+        <v-list
+          v-if="f.search"
+          dense
+        >
+          <v-list-item v-for="(v, i) in filtersActive[key]"
+                       :key="i"
+                       @click.stop="click(key, v)"
+          >
+            <v-list-item-icon>
+              <v-icon color="secondary">mdi-checkbox-marked</v-icon>
+            </v-list-item-icon>
+            <v-list-item-title>{{ v }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
+
+        <v-list
+          v-if="f.values"
+          dense
+        >
           <v-list-item v-for="v in f.values"
                        :key="v.value"
                        @click.stop="click(key, v.value)"
@@ -38,37 +66,34 @@
 </template>
 
 <script lang="ts">
-import Vue from 'vue'
+import Vue, {PropType} from 'vue'
+import SearchBoxBase from '@/components/SearchBoxBase.vue'
 
 export default Vue.extend({
   name: 'FilterPanels',
+  components: {SearchBoxBase},
   props: {
     filtersOptions: {
-      type: Object as () => FiltersOptions,
+      type: Object as PropType<FiltersOptions>,
       required: true,
     },
     filtersActive: {
-      type: Object as () => FiltersActive,
+      type: Object as PropType<FiltersActive>,
       required: true,
     },
   },
   methods: {
-    clear (key: string) {
+    clear(key: string) {
       let r = this.$_.cloneDeep(this.filtersActive)
       r[key] = []
 
       this.$emit('update:filtersActive', r)
     },
-    groupActive (key: string): boolean {
+    groupActive(key: string): boolean {
       if (!(key in this.filtersActive)) return false
-      for (let v of this.filtersOptions[key].values) {
-        if (this.filtersActive[key].includes(v.value)) {
-          return true
-        }
-      }
-      return false
+      return this.filtersActive[key].length > 0
     },
-    click (key: string, value: string) {
+    click(key: string, value: string) {
       let r = this.$_.cloneDeep(this.filtersActive)
       if (!(key in r)) r[key] = []
       if (r[key].includes(value)) this.$_.pull(r[key], (value))

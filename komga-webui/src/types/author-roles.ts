@@ -1,9 +1,15 @@
 export const authorRoles = [
-  { role: 'writer'},
-  { role: 'penciller'},
-  { role: 'inker'},
-  { role: 'colorist'},
-  { role: 'letterer'},
-  { role: 'cover'},
-  { role: 'editor'},
+  'writer',
+  'penciller',
+  'inker',
+  'colorist',
+  'letterer',
+  'cover',
+  'editor',
+  'translator',
+]
+
+export const authorRolesSeries = [
+  'writer',
+  'penciller',
 ]

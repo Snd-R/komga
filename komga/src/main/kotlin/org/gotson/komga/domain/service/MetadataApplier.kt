@@ -1,13 +1,10 @@
 package org.gotson.komga.domain.service
 
-import mu.KotlinLogging
 import org.gotson.komga.domain.model.BookMetadata
 import org.gotson.komga.domain.model.BookMetadataPatch
 import org.gotson.komga.domain.model.SeriesMetadata
 import org.gotson.komga.domain.model.SeriesMetadataPatch
 import org.springframework.stereotype.Service
-
-private val logger = KotlinLogging.logger {}
 
 @Service
 class MetadataApplier {
@@ -24,7 +21,10 @@ class MetadataApplier {
         number = getIfNotLocked(number, patch.number, numberLock),
         numberSort = getIfNotLocked(numberSort, patch.numberSort, numberSortLock),
         releaseDate = getIfNotLocked(releaseDate, patch.releaseDate, releaseDateLock),
-        authors = getIfNotLocked(authors, patch.authors, authorsLock)
+        authors = getIfNotLocked(authors, patch.authors, authorsLock),
+        isbn = getIfNotLocked(isbn, patch.isbn, isbnLock),
+        links = getIfNotLocked(links, patch.links, linksLock),
+        tags = getIfNotLocked(tags, patch.tags, tagsLock),
       )
     }
 
@@ -39,7 +39,8 @@ class MetadataApplier {
         ageRating = getIfNotLocked(ageRating, patch.ageRating, ageRatingLock),
         publisher = getIfNotLocked(publisher, patch.publisher, publisherLock),
         language = getIfNotLocked(language, patch.language, languageLock),
-        genres = getIfNotLocked(genres, patch.genres, genresLock)
+        genres = getIfNotLocked(genres, patch.genres, genresLock),
+        totalBookCount = getIfNotLocked(totalBookCount, patch.totalBookCount, totalBookCountLock),
       )
     }
 }

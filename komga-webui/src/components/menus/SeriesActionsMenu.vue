@@ -22,18 +22,16 @@
         <v-list-item @click="markUnread" v-if="!isUnread">
           <v-list-item-title>{{ $t('menu.mark_unread') }}</v-list-item-title>
         </v-list-item>
-        <v-list-item v-if="canDownload" :href="fileUrl">
-          <v-list-item-title>{{ $t('menu.download_series') }}</v-list-item-title>
+        <v-list-item @click="promptDeleteSeries" class="list-warning" v-if="isAdmin">
+          <v-list-item-title>{{ $t('menu.delete') }}</v-list-item-title>
         </v-list-item>
       </v-list>
     </v-menu>
   </div>
 </template>
 <script lang="ts">
-import {SERIES_CHANGED, seriesToEventSeriesChanged} from '@/types/events'
 import Vue from 'vue'
-import {SeriesDto} from "@/types/komga-series";
-import {seriesFileUrl} from "@/functions/urls";
+import {SeriesDto} from '@/types/komga-series'
 
 export default Vue.extend({
   name: 'SeriesActionsMenu',
@@ -61,12 +59,6 @@ export default Vue.extend({
     isAdmin (): boolean {
       return this.$store.getters.meAdmin
     },
-    canDownload (): boolean {
-      return this.$store.getters.meFileDownload
-    },
-    fileUrl (): string {
-      return seriesFileUrl(this.series.id)
-    },
     isRead (): boolean {
       return this.series.booksReadCount === this.series.booksCount
     },
@@ -86,11 +78,14 @@ export default Vue.extend({
     },
     async markRead () {
       await this.$komgaSeries.markAsRead(this.series.id)
-      this.$eventHub.$emit(SERIES_CHANGED, seriesToEventSeriesChanged(this.series))
+      // this.$eventHub.$emit(SERIES_CHANGED, seriesToEventSeriesChanged(this.series))
     },
     async markUnread () {
       await this.$komgaSeries.markAsUnread(this.series.id)
-      this.$eventHub.$emit(SERIES_CHANGED, seriesToEventSeriesChanged(this.series))
+      // this.$eventHub.$emit(SERIES_CHANGED, seriesToEventSeriesChanged(this.series))
+    },
+    promptDeleteSeries () {
+      this.$store.dispatch('dialogDeleteSeries', this.series)
     },
   },
 })

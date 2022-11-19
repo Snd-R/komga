@@ -1,3 +1,5 @@
+import {PageHashKnownDto, PageHashUnknownDto} from '@/types/komga-pagehashes'
+
 const fullUrl = process.env.VUE_APP_KOMGA_API_URL
   ? process.env.VUE_APP_KOMGA_API_URL
   : window.location.origin + window.resourceBaseUrl
@@ -12,15 +14,19 @@ const urls = {
 
 export default urls
 
-export function bookThumbnailUrl (bookId: string): string {
+export function bookThumbnailUrl(bookId: string): string {
   return `${urls.originNoSlash}/api/v1/books/${bookId}/thumbnail`
 }
 
-export function bookFileUrl (bookId: string): string {
+export function bookThumbnailUrlByThumbnailId(bookId: string, thumbnailId: string) {
+  return `${urls.originNoSlash}/api/v1/books/${bookId}/thumbnails/${thumbnailId}`
+}
+
+export function bookFileUrl(bookId: string): string {
   return `${urls.originNoSlash}/api/v1/books/${bookId}/file`
 }
 
-export function bookPageUrl (bookId: string, page: number, convertTo?: string, upscale?: boolean): string {
+export function bookPageUrl(bookId: string, page: number, convertTo?: string, upscale?: boolean): string {
   let url = `${urls.originNoSlash}/api/v1/books/${bookId}/pages/${page}`
   if (convertTo) {
     url += `?convert=${convertTo}`
@@ -31,22 +37,54 @@ export function bookPageUrl (bookId: string, page: number, convertTo?: string, u
   return url
 }
 
-export function bookPageThumbnailUrl (bookId: string, page: number): string {
+export function bookPageThumbnailUrl(bookId: string, page: number): string {
   return `${urls.originNoSlash}/api/v1/books/${bookId}/pages/${page}/thumbnail`
 }
 
-export function seriesFileUrl (seriesId: string): string {
+export function seriesFileUrl(seriesId: string): string {
   return `${urls.originNoSlash}/api/v1/series/${seriesId}/file`
 }
 
-export function seriesThumbnailUrl (seriesId: string): string {
+export function seriesThumbnailUrl(seriesId: string): string {
   return `${urls.originNoSlash}/api/v1/series/${seriesId}/thumbnail`
 }
 
-export function collectionThumbnailUrl (collectionId: string): string {
+export function seriesThumbnailUrlByThumbnailId(seriesId: string, thumbnailId: string) {
+  return `${urls.originNoSlash}/api/v1/series/${seriesId}/thumbnails/${thumbnailId}`
+}
+
+export function collectionThumbnailUrl(collectionId: string): string {
   return `${urls.originNoSlash}/api/v1/collections/${collectionId}/thumbnail`
 }
 
-export function readListThumbnailUrl (readListId: string): string {
+export function collectionThumbnailUrlByThumbnailId(collectionId: string, thumbnailId: string) {
+  return `${urls.originNoSlash}/api/v1/collections/${collectionId}/thumbnails/${thumbnailId}`
+}
+
+export function readListThumbnailUrl(readListId: string): string {
   return `${urls.originNoSlash}/api/v1/readlists/${readListId}/thumbnail`
+}
+
+export function readListFileUrl(readListId: string): string {
+  return `${urls.originNoSlash}/api/v1/readlists/${readListId}/file`
+}
+
+export function readListThumbnailUrlByThumbnailId(readListId: string, thumbnailId: string) {
+  return `${urls.originNoSlash}/api/v1/readlists/${readListId}/thumbnails/${thumbnailId}`
+}
+
+export function transientBookPageUrl(transientBookId: string, page: number): string {
+  return `${urls.originNoSlash}/api/v1/transient-books/${transientBookId}/pages/${page}`
+}
+
+export function pageHashUnknownThumbnailUrl(pageHash: PageHashUnknownDto, resize?: number): string {
+  let url = `${urls.originNoSlash}/api/v1/page-hashes/unknown/${pageHash.hash}/thumbnail?media_type=${pageHash.mediaType}&file_size=${pageHash.size || -1}`
+  if(resize) {
+    url += `&resize=${resize}`
+  }
+  return url
+}
+
+export function pageHashKnownThumbnailUrl(pageHash: PageHashKnownDto): string {
+  return `${urls.originNoSlash}/api/v1/page-hashes/${pageHash.hash}/thumbnail?media_type=${pageHash.mediaType}&file_size=${pageHash.size || -1}`
 }

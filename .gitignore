@@ -13,10 +13,6 @@ node_modules
 *.tmp
 *.bak
 
-### H2 databases
-*.mv.db
-*.trace.db
-
 ### SQLite databases
 *.sqlite
 *.sqlite-journal
@@ -37,6 +33,9 @@ node_modules
 *.iml
 *.ipr
 
+### IntelliJ Fleet
+.fleet/
+
 ### NetBeans
 nbproject/private/
 build/
@@ -47,4 +46,6 @@ nbdist/
 
 ### Komga
 /komga/src/main/resources/public/
-/komga/artemis/
+/config-dir/
+application-oauth2.yml
+/benchmark

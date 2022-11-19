@@ -24,7 +24,7 @@ import java.time.LocalDateTime
 class BookMetadataAggregationDaoTest(
   @Autowired private val bookMetadataAggregationDao: BookMetadataAggregationDao,
   @Autowired private val seriesRepository: SeriesRepository,
-  @Autowired private val libraryRepository: LibraryRepository
+  @Autowired private val libraryRepository: LibraryRepository,
 ) {
 
   private val library = makeLibrary()
@@ -54,10 +54,11 @@ class BookMetadataAggregationDaoTest(
     val now = LocalDateTime.now()
     val metadata = BookMetadataAggregation(
       authors = listOf(Author("author", "role")),
+      tags = setOf("tag1", "tag2"),
       releaseDate = LocalDate.now(),
       summary = "Summary",
       summaryNumber = "1",
-      seriesId = series.id
+      seriesId = series.id,
     )
 
     bookMetadataAggregationDao.insert(metadata)
@@ -74,6 +75,7 @@ class BookMetadataAggregationDaoTest(
       assertThat(name).isEqualTo(metadata.authors.first().name)
       assertThat(role).isEqualTo(metadata.authors.first().role)
     }
+    assertThat(created.tags).containsExactlyInAnyOrderElementsOf(metadata.tags)
   }
 
   @Test
@@ -82,7 +84,7 @@ class BookMetadataAggregationDaoTest(
 
     val now = LocalDateTime.now()
     val metadata = BookMetadataAggregation(
-      seriesId = series.id
+      seriesId = series.id,
     )
 
     bookMetadataAggregationDao.insert(metadata)
@@ -104,9 +106,10 @@ class BookMetadataAggregationDaoTest(
 
     val metadata = BookMetadataAggregation(
       authors = listOf(Author("author", "role")),
+      tags = setOf("tag1", "tag2"),
       releaseDate = LocalDate.now(),
       summary = "Summary",
-      seriesId = series.id
+      seriesId = series.id,
     )
 
     bookMetadataAggregationDao.insert(metadata)
@@ -137,10 +140,11 @@ class BookMetadataAggregationDaoTest(
 
     val metadata = BookMetadataAggregation(
       authors = listOf(Author("author", "role")),
+      tags = setOf("tag1", "tag2"),
       releaseDate = LocalDate.now(),
       summary = "Summary",
       summaryNumber = "1",
-      seriesId = series.id
+      seriesId = series.id,
     )
     bookMetadataAggregationDao.insert(metadata)
     val created = bookMetadataAggregationDao.findById(metadata.seriesId)
@@ -153,6 +157,7 @@ class BookMetadataAggregationDaoTest(
         summary = "SummaryUpdated",
         summaryNumber = "2",
         authors = listOf(Author("authorUpdated", "roleUpdated"), Author("author2", "role2")),
+        tags = setOf("tag1", "tag2updated"),
       )
     }
 
@@ -170,5 +175,6 @@ class BookMetadataAggregationDaoTest(
     assertThat(modified.authors).hasSize(2)
     assertThat(modified.authors.map { it.name }).containsExactlyInAnyOrderElementsOf(updated.authors.map { it.name })
     assertThat(modified.authors.map { it.role }).containsExactlyInAnyOrderElementsOf(updated.authors.map { it.role })
+    assertThat(modified.tags).containsExactlyInAnyOrderElementsOf(updated.tags)
   }
 }

@@ -10,10 +10,14 @@ data class Media(
   val comment: String? = null,
   val bookId: String = "",
   override val createdDate: LocalDateTime = LocalDateTime.now(),
-  override val lastModifiedDate: LocalDateTime = LocalDateTime.now()
-) : Auditable() {
+  override val lastModifiedDate: LocalDateTime = createdDate,
+) : Auditable {
 
   enum class Status {
     UNKNOWN, ERROR, READY, UNSUPPORTED, OUTDATED
+  }
+
+  override fun toString(): String {
+    return "Media(status=$status, mediaType=$mediaType, comment=$comment, bookId='$bookId', createdDate=$createdDate, lastModifiedDate=$lastModifiedDate)"
   }
 }

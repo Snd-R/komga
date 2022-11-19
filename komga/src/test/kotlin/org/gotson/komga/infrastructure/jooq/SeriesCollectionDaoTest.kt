@@ -22,7 +22,7 @@ import java.time.LocalDateTime
 class SeriesCollectionDaoTest(
   @Autowired private val collectionDao: SeriesCollectionDao,
   @Autowired private val seriesRepository: SeriesRepository,
-  @Autowired private val libraryRepository: LibraryRepository
+  @Autowired private val libraryRepository: LibraryRepository,
 ) {
 
   private val library = makeLibrary()
@@ -53,7 +53,7 @@ class SeriesCollectionDaoTest(
 
     val collection = SeriesCollection(
       name = "MyCollection",
-      seriesIds = series.map { it.id }
+      seriesIds = series.map { it.id },
     )
 
     // when
@@ -79,7 +79,7 @@ class SeriesCollectionDaoTest(
 
     val collection = SeriesCollection(
       name = "MyCollection",
-      seriesIds = series.map { it.id }
+      seriesIds = series.map { it.id },
     )
 
     collectionDao.insert(collection)
@@ -88,7 +88,7 @@ class SeriesCollectionDaoTest(
     val updatedCollection = collection.copy(
       name = "UpdatedCollection",
       ordered = true,
-      seriesIds = collection.seriesIds.take(5)
+      seriesIds = collection.seriesIds.take(5),
     )
 
     val now = LocalDateTime.now()
@@ -113,13 +113,13 @@ class SeriesCollectionDaoTest(
 
     val collection1 = SeriesCollection(
       name = "MyCollection",
-      seriesIds = series.map { it.id }
+      seriesIds = series.map { it.id },
     )
     collectionDao.insert(collection1)
 
     val collection2 = SeriesCollection(
       name = "MyCollection2",
-      seriesIds = series.map { it.id }.take(5)
+      seriesIds = series.map { it.id }.take(5),
     )
     collectionDao.insert(collection2)
 
@@ -147,30 +147,30 @@ class SeriesCollectionDaoTest(
     collectionDao.insert(
       SeriesCollection(
         name = "collectionLibrary1",
-        seriesIds = listOf(seriesLibrary1.id)
-      )
+        seriesIds = listOf(seriesLibrary1.id),
+      ),
     )
 
     collectionDao.insert(
       SeriesCollection(
         name = "collectionLibrary2",
-        seriesIds = listOf(seriesLibrary2.id)
-      )
+        seriesIds = listOf(seriesLibrary2.id),
+      ),
     )
 
     collectionDao.insert(
       SeriesCollection(
         name = "collectionLibraryBoth",
-        seriesIds = listOf(seriesLibrary1.id, seriesLibrary2.id)
-      )
+        seriesIds = listOf(seriesLibrary1.id, seriesLibrary2.id),
+      ),
     )
 
     // when
-    val foundLibrary1Filtered = collectionDao.findAllByLibraries(listOf(library.id), listOf(library.id), pageable = Pageable.unpaged()).content
-    val foundLibrary1Unfiltered = collectionDao.findAllByLibraries(listOf(library.id), null, pageable = Pageable.unpaged()).content
-    val foundLibrary2Filtered = collectionDao.findAllByLibraries(listOf(library2.id), listOf(library2.id), pageable = Pageable.unpaged()).content
-    val foundLibrary2Unfiltered = collectionDao.findAllByLibraries(listOf(library2.id), null, pageable = Pageable.unpaged()).content
-    val foundBothUnfiltered = collectionDao.findAllByLibraries(listOf(library.id, library2.id), null, pageable = Pageable.unpaged()).content
+    val foundLibrary1Filtered = collectionDao.findAll(listOf(library.id), listOf(library.id), pageable = Pageable.unpaged()).content
+    val foundLibrary1Unfiltered = collectionDao.findAll(listOf(library.id), null, pageable = Pageable.unpaged()).content
+    val foundLibrary2Filtered = collectionDao.findAll(listOf(library2.id), listOf(library2.id), pageable = Pageable.unpaged()).content
+    val foundLibrary2Unfiltered = collectionDao.findAll(listOf(library2.id), null, pageable = Pageable.unpaged()).content
+    val foundBothUnfiltered = collectionDao.findAll(listOf(library.id, library2.id), null, pageable = Pageable.unpaged()).content
 
     // then
     assertThat(foundLibrary1Filtered).hasSize(2)

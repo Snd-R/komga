@@ -1,7 +1,8 @@
 import KomgaLibrariesService from '@/services/komga-libraries.service'
-import { AxiosInstance } from 'axios'
+import {AxiosInstance} from 'axios'
 import _Vue from 'vue'
-import { Module } from 'vuex/types'
+import {Module} from 'vuex/types'
+import {LibraryDto} from '@/types/komga-libraries'
 
 let service: KomgaLibrariesService
 
@@ -25,15 +26,12 @@ const vuexModule: Module<any, any> = {
     },
     async postLibrary ({ dispatch }, library) {
       await service.postLibrary(library)
-      await dispatch('getLibraries')
     },
     async updateLibrary ({ dispatch }, { libraryId, library }) {
       await service.updateLibrary(libraryId, library)
-      await dispatch('getLibraries')
     },
     async deleteLibrary ({ dispatch }, library) {
       await service.deleteLibrary(library)
-      await dispatch('getLibraries')
     },
   },
 }

@@ -17,7 +17,9 @@ export const shortcutsSettings = [
   new Shortcut('bookreader.shortcuts.cycle_scale',
     (ctx: any) => ctx.cycleScale()
     , 'c'),
-
+  new Shortcut('bookreader.shortcuts.fullscreen',
+    (ctx: any) => ctx.switchFullscreen()
+    , 'f'),
   new Shortcut('toggle upscale',
     (ctx: any) => ctx.toggleUpscale()
     , 'u'),

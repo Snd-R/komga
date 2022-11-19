@@ -1,7 +1,10 @@
 package org.gotson.komga.domain.model
 
 import com.github.f4b6a3.tsid.TsidCreator
+import java.io.Serializable
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Paths
 import java.time.LocalDateTime
 
 data class ThumbnailBook(
@@ -10,14 +13,14 @@ data class ThumbnailBook(
   val selected: Boolean = false,
   val type: Type,
 
-  val id: String = TsidCreator.getTsidString256(),
+  val id: String = TsidCreator.getTsid256().toString(),
   val bookId: String = "",
 
   override val createdDate: LocalDateTime = LocalDateTime.now(),
-  override val lastModifiedDate: LocalDateTime = LocalDateTime.now()
-) : Auditable() {
+  override val lastModifiedDate: LocalDateTime = createdDate,
+) : Auditable, Serializable {
   enum class Type {
-    GENERATED, SIDECAR
+    GENERATED, SIDECAR, USER_UPLOADED
   }
 
   override fun equals(other: Any?): Boolean {
@@ -49,5 +52,10 @@ data class ThumbnailBook(
     result = 31 * result + createdDate.hashCode()
     result = 31 * result + lastModifiedDate.hashCode()
     return result
+  }
+
+  fun exists(): Boolean {
+    if (url != null) return Files.exists(Paths.get(url.toURI()))
+    return thumbnail != null
   }
 }

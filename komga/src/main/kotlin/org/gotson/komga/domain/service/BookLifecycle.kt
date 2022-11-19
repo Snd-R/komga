@@ -1,27 +1,40 @@
 package org.gotson.komga.domain.service
 
 import mu.KotlinLogging
+import org.gotson.komga.application.events.EventPublisher
 import org.gotson.komga.domain.model.Book
 import org.gotson.komga.domain.model.BookPageContent
+import org.gotson.komga.domain.model.BookWithMedia
+import org.gotson.komga.domain.model.DomainEvent
+import org.gotson.komga.domain.model.HistoricalEvent
 import org.gotson.komga.domain.model.ImageConversionException
 import org.gotson.komga.domain.model.KomgaUser
+import org.gotson.komga.domain.model.MarkSelectedPreference
 import org.gotson.komga.domain.model.Media
 import org.gotson.komga.domain.model.MediaNotReadyException
 import org.gotson.komga.domain.model.ReadProgress
 import org.gotson.komga.domain.model.ThumbnailBook
 import org.gotson.komga.domain.persistence.BookMetadataRepository
 import org.gotson.komga.domain.persistence.BookRepository
+import org.gotson.komga.domain.persistence.HistoricalEventRepository
+import org.gotson.komga.domain.persistence.LibraryRepository
 import org.gotson.komga.domain.persistence.MediaRepository
 import org.gotson.komga.domain.persistence.ReadListRepository
 import org.gotson.komga.domain.persistence.ReadProgressRepository
 import org.gotson.komga.domain.persistence.ThumbnailBookRepository
+import org.gotson.komga.infrastructure.hash.Hasher
 import org.gotson.komga.infrastructure.image.ImageConverter
 import org.gotson.komga.infrastructure.image.ImageType
-import org.gotson.komga.infrastructure.image.ImageUpscaler
 import org.springframework.stereotype.Service
+import org.springframework.transaction.support.TransactionTemplate
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.Paths
+import java.time.LocalDateTime
+import kotlin.io.path.deleteIfExists
+import kotlin.io.path.exists
+import kotlin.io.path.isWritable
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.notExists
+import kotlin.io.path.toPath
 
 private val logger = KotlinLogging.logger {}
 
@@ -33,72 +46,118 @@ class BookLifecycle(
   private val readProgressRepository: ReadProgressRepository,
   private val thumbnailBookRepository: ThumbnailBookRepository,
   private val readListRepository: ReadListRepository,
+  private val libraryRepository: LibraryRepository,
   private val bookAnalyzer: BookAnalyzer,
   private val imageConverter: ImageConverter,
-  private val upscaler: ImageUpscaler
+  private val eventPublisher: EventPublisher,
+  private val transactionTemplate: TransactionTemplate,
+  private val hasher: Hasher,
+  private val historicalEventRepository: HistoricalEventRepository,
 ) {
 
-  fun analyzeAndPersist(book: Book) {
+  fun analyzeAndPersist(book: Book): Boolean {
     logger.info { "Analyze and persist book: $book" }
-    val media = try {
-      bookAnalyzer.analyze(book)
-    } catch (ex: Exception) {
-      logger.error(ex) { "Error while analyzing book: $book" }
-      Media(status = Media.Status.ERROR, comment = ex.message)
-    }.copy(bookId = book.id)
+    val media = bookAnalyzer.analyze(book, libraryRepository.findById(book.libraryId).analyzeDimensions)
 
-    // if the number of pages has changed, delete all read progress for that book
-    val previous = mediaRepository.findById(book.id)
-    if (previous.status == Media.Status.OUTDATED && previous.pages.size != media.pages.size) {
-      readProgressRepository.deleteByBookId(book.id)
+    transactionTemplate.executeWithoutResult {
+      // if the number of pages has changed, delete all read progress for that book
+      mediaRepository.findById(book.id).let { previous ->
+        if (previous.status == Media.Status.OUTDATED && previous.pages.size != media.pages.size) {
+          logger.info { "Number of pages differ, reset read progress for book" }
+          readProgressRepository.deleteByBookId(book.id)
+        }
+      }
+
+      mediaRepository.update(media)
     }
 
-    mediaRepository.update(media)
+    eventPublisher.publishEvent(DomainEvent.BookUpdated(book))
+
+    return media.status == Media.Status.READY
+  }
+
+  fun hashAndPersist(book: Book) {
+    if (!libraryRepository.findById(book.libraryId).hashFiles)
+      return logger.info { "File hashing is disabled for the library, it may have changed since the task was submitted, skipping" }
+
+    logger.info { "Hash and persist book: $book" }
+    if (book.fileHash.isBlank()) {
+      val hash = hasher.computeHash(book.path)
+      bookRepository.update(book.copy(fileHash = hash))
+    } else {
+      logger.info { "Book already has a hash, skipping" }
+    }
+  }
+
+  fun hashPagesAndPersist(book: Book) {
+    if (!libraryRepository.findById(book.libraryId).hashPages)
+      return logger.info { "Page hashing is disabled for the library, it may have changed since the task was submitted, skipping" }
+
+    logger.info { "Hash and persist pages for book: $book" }
+
+    mediaRepository.update(bookAnalyzer.hashPages(BookWithMedia(book, mediaRepository.findById(book.id))))
   }
 
   fun generateThumbnailAndPersist(book: Book) {
     logger.info { "Generate thumbnail and persist for book: $book" }
-    val thumbnailBook = try {
-      bookAnalyzer.generateThumbnail(book)
+    try {
+      addThumbnailForBook(bookAnalyzer.generateThumbnail(BookWithMedia(book, mediaRepository.findById(book.id))), MarkSelectedPreference.IF_NONE_OR_GENERATED)
     } catch (ex: Exception) {
       logger.error(ex) { "Error while creating thumbnail" }
-      null
-    }
-    thumbnailBook?.let {
-      addThumbnailForBook(it)
     }
   }
 
-  fun addThumbnailForBook(thumbnail: ThumbnailBook) {
+  fun addThumbnailForBook(thumbnail: ThumbnailBook, markSelected: MarkSelectedPreference): ThumbnailBook {
     when (thumbnail.type) {
       ThumbnailBook.Type.GENERATED -> {
         // only one generated thumbnail is allowed
         thumbnailBookRepository.deleteByBookIdAndType(thumbnail.bookId, ThumbnailBook.Type.GENERATED)
-        thumbnailBookRepository.insert(thumbnail)
+        thumbnailBookRepository.insert(thumbnail.copy(selected = false))
       }
       ThumbnailBook.Type.SIDECAR -> {
         // delete existing thumbnail with the same url
-        thumbnailBookRepository.findByBookIdAndType(thumbnail.bookId, ThumbnailBook.Type.SIDECAR)
+        thumbnailBookRepository.findAllByBookIdAndType(thumbnail.bookId, ThumbnailBook.Type.SIDECAR)
           .filter { it.url == thumbnail.url }
           .forEach {
             thumbnailBookRepository.delete(it.id)
           }
-        thumbnailBookRepository.insert(thumbnail)
+        thumbnailBookRepository.insert(thumbnail.copy(selected = false))
+      }
+      ThumbnailBook.Type.USER_UPLOADED -> {
+        thumbnailBookRepository.insert(thumbnail.copy(selected = false))
       }
     }
 
-    if (thumbnail.selected)
-      thumbnailBookRepository.markSelected(thumbnail)
-    else
-      thumbnailsHouseKeeping(thumbnail.bookId)
+    val selected = when (markSelected) {
+      MarkSelectedPreference.YES -> true
+      MarkSelectedPreference.IF_NONE_OR_GENERATED -> {
+        val selectedThumbnail = thumbnailBookRepository.findSelectedByBookIdOrNull(thumbnail.bookId)
+        selectedThumbnail == null || selectedThumbnail.type == ThumbnailBook.Type.GENERATED
+      }
+      MarkSelectedPreference.NO -> false
+    }
+
+    if (selected) thumbnailBookRepository.markSelected(thumbnail)
+    else thumbnailsHouseKeeping(thumbnail.bookId)
+
+    val newThumbnail = thumbnail.copy(selected = selected)
+    eventPublisher.publishEvent(DomainEvent.ThumbnailBookAdded(newThumbnail))
+    return newThumbnail
+  }
+
+  fun deleteThumbnailForBook(thumbnail: ThumbnailBook) {
+    require(thumbnail.type == ThumbnailBook.Type.USER_UPLOADED) { "Only uploaded thumbnails can be deleted" }
+    thumbnailBookRepository.delete(thumbnail.id)
+    thumbnailsHouseKeeping(thumbnail.bookId)
+    eventPublisher.publishEvent(DomainEvent.ThumbnailBookDeleted(thumbnail))
   }
 
   fun getThumbnail(bookId: String): ThumbnailBook? {
-    val selected = thumbnailBookRepository.findSelectedByBookId(bookId)
+    val selected = thumbnailBookRepository.findSelectedByBookIdOrNull(bookId)
 
     if (selected == null || !selected.exists()) {
       thumbnailsHouseKeeping(bookId)
-      return thumbnailBookRepository.findSelectedByBookId(bookId)
+      return thumbnailBookRepository.findSelectedByBookIdOrNull(bookId)
     }
 
     return selected
@@ -115,9 +174,21 @@ class BookLifecycle(
     return null
   }
 
+  fun getThumbnailBytesByThumbnailId(thumbnailId: String): ByteArray? =
+    thumbnailBookRepository.findByIdOrNull(thumbnailId)?.let {
+      getBytesFromThumbnailBook(it)
+    }
+
+  private fun getBytesFromThumbnailBook(thumbnail: ThumbnailBook): ByteArray? =
+    when {
+      thumbnail.thumbnail != null -> thumbnail.thumbnail
+      thumbnail.url != null -> File(thumbnail.url.toURI()).readBytes()
+      else -> null
+    }
+
   private fun thumbnailsHouseKeeping(bookId: String) {
     logger.info { "House keeping thumbnails for book: $bookId" }
-    val all = thumbnailBookRepository.findByBookId(bookId)
+    val all = thumbnailBookRepository.findAllByBookId(bookId)
       .mapNotNull {
         if (!it.exists()) {
           logger.warn { "Thumbnail doesn't exist, removing entry" }
@@ -139,117 +210,142 @@ class BookLifecycle(
     }
   }
 
-  private fun ThumbnailBook.exists(): Boolean {
-    if (type == ThumbnailBook.Type.SIDECAR) {
-      if (url != null)
-        return Files.exists(Paths.get(url.toURI()))
-      return false
-    }
-    return true
-  }
-
   @Throws(
     ImageConversionException::class,
     MediaNotReadyException::class,
-    IndexOutOfBoundsException::class
+    IndexOutOfBoundsException::class,
   )
-  fun getBookPage(book: Book, number: Int, convertTo: ImageType? = null, upscale: Boolean = false, resizeTo: Int? = null): BookPageContent {
+  fun getBookPage(book: Book, number: Int, convertTo: ImageType? = null, resizeTo: Int? = null): BookPageContent {
     val media = mediaRepository.findById(book.id)
-
-    val pageContent = bookAnalyzer.getPageContent(book, number)
+    val pageContent = bookAnalyzer.getPageContent(BookWithMedia(book, mediaRepository.findById(book.id)), number)
     val pageMediaType = media.pages[number - 1].mediaType
 
     if (resizeTo != null) {
       val targetFormat = ImageType.JPEG
-      val convertedPage = resizeImage(pageContent, resizeTo, targetFormat)
+      val convertedPage = try {
+        imageConverter.resizeImage(pageContent, targetFormat.imageIOFormat, resizeTo)
+      } catch (e: Exception) {
+        logger.error(e) { "Resize page #$number of book $book to $resizeTo: failed" }
+        throw e
+      }
       return BookPageContent(number, convertedPage, targetFormat.mediaType)
     } else {
-      var modifiedContent = pageContent
-      var modifiedMediaType = pageMediaType
-      if (upscale) {
-        modifiedContent = upscaler.upscale(pageContent)
+      convertTo?.let {
+        val msg = "Convert page #$number of book $book from $pageMediaType to ${it.mediaType}"
+        if (!imageConverter.supportedReadMediaTypes.contains(pageMediaType)) {
+          throw ImageConversionException("$msg: unsupported read format $pageMediaType")
+        }
+        if (!imageConverter.supportedWriteMediaTypes.contains(it.mediaType)) {
+          throw ImageConversionException("$msg: unsupported write format ${it.mediaType}")
+        }
+        if (pageMediaType == it.mediaType) {
+          logger.warn { "$msg: same format, no need for conversion" }
+          return@let
+        }
+
+        logger.info { msg }
+        val convertedPage = try {
+          imageConverter.convertImage(pageContent, it.imageIOFormat)
+        } catch (e: Exception) {
+          logger.error(e) { "$msg: conversion failed" }
+          throw e
+        }
+        return BookPageContent(number, convertedPage, it.mediaType)
       }
-      if (convertTo != null) {
-        modifiedContent = convertImage(modifiedContent, pageMediaType, convertTo)
-        modifiedMediaType = convertTo.mediaType
-      }
 
-      return BookPageContent(number, modifiedContent, modifiedMediaType)
+      return BookPageContent(number, pageContent, pageMediaType)
     }
   }
 
-  private fun resizeImage(image: ByteArray, resizeTo: Int, targetFormat: ImageType): ByteArray {
-    return try {
-      imageConverter.resizeImage(image, targetFormat.imageIOFormat, resizeTo)
-    } catch (e: Exception) {
-      logger.error(e) { "Resize to $resizeTo: failed" }
-      throw e
+  fun deleteOne(book: Book) {
+    logger.info { "Delete book id: ${book.id}" }
+
+    transactionTemplate.executeWithoutResult {
+      readProgressRepository.deleteByBookId(book.id)
+      readListRepository.removeBookFromAll(book.id)
+
+      mediaRepository.delete(book.id)
+      thumbnailBookRepository.deleteByBookId(book.id)
+      bookMetadataRepository.delete(book.id)
+
+      bookRepository.delete(book.id)
     }
+
+    eventPublisher.publishEvent(DomainEvent.BookDeleted(book))
   }
 
-  private fun convertImage(image: ByteArray, pageMediaType: String, convertTo: ImageType): ByteArray {
-    val msg = "Convert page from $pageMediaType to ${convertTo.mediaType}"
+  fun softDeleteMany(books: Collection<Book>) {
+    logger.info { "Soft delete books: $books" }
+    val deletedDate = LocalDateTime.now()
+    bookRepository.update(books.map { it.copy(deletedDate = deletedDate) })
 
-    if (!imageConverter.supportedReadMediaTypes.contains(pageMediaType)) {
-      throw ImageConversionException("$msg: unsupported read format $pageMediaType")
-    }
-    if (!imageConverter.supportedWriteMediaTypes.contains(convertTo.mediaType)) {
-      throw ImageConversionException("$msg: unsupported write format ${convertTo.mediaType}")
-    }
-    if (pageMediaType == convertTo.mediaType) {
-      logger.warn { "$msg: same format, no need for conversion" }
-      return image
-    }
-
-    logger.info { msg }
-    try {
-      return imageConverter.convertImage(image, convertTo.imageIOFormat)
-    } catch (e: Exception) {
-      logger.error(e) { "$msg: conversion failed" }
-      throw e
-    }
+    books.forEach { eventPublisher.publishEvent(DomainEvent.BookUpdated(it)) }
   }
 
-  fun deleteOne(bookId: String) {
-    logger.info { "Delete book id: $bookId" }
+  fun deleteMany(books: Collection<Book>) {
+    val bookIds = books.map { it.id }
+    logger.info { "Delete book ids: $bookIds" }
 
-    readProgressRepository.deleteByBookId(bookId)
-    readListRepository.removeBookFromAll(bookId)
+    transactionTemplate.executeWithoutResult {
+      readProgressRepository.deleteByBookIds(bookIds)
+      readListRepository.removeBooksFromAll(bookIds)
 
-    mediaRepository.delete(bookId)
-    thumbnailBookRepository.deleteByBookId(bookId)
-    bookMetadataRepository.delete(bookId)
+      mediaRepository.deleteByBookIds(bookIds)
+      thumbnailBookRepository.deleteByBookIds(bookIds)
+      bookMetadataRepository.delete(bookIds)
 
-    bookRepository.delete(bookId)
-  }
+      bookRepository.delete(bookIds)
+    }
 
-  fun deleteMany(bookIds: Collection<String>) {
-    logger.info { "Delete all books: $bookIds" }
-
-    readProgressRepository.deleteByBookIds(bookIds)
-    readListRepository.removeBookFromAll(bookIds)
-
-    mediaRepository.deleteByBookIds(bookIds)
-    thumbnailBookRepository.deleteByBookIds(bookIds)
-    bookMetadataRepository.deleteByBookIds(bookIds)
-
-    bookRepository.deleteByBookIds(bookIds)
+    books.forEach { eventPublisher.publishEvent(DomainEvent.BookDeleted(it)) }
   }
 
   fun markReadProgress(book: Book, user: KomgaUser, page: Int) {
-    val media = mediaRepository.findById(book.id)
-    require(page >= 1 && page <= media.pages.size) { "Page argument ($page) must be within 1 and book page count (${media.pages.size})" }
+    val pages = mediaRepository.getPagesSize(book.id)
+    require(page in 1..pages) { "Page argument ($page) must be within 1 and book page count ($pages)" }
 
-    readProgressRepository.save(ReadProgress(book.id, user.id, page, page == media.pages.size))
+    val progress = ReadProgress(book.id, user.id, page, page == pages)
+    readProgressRepository.save(progress)
+    eventPublisher.publishEvent(DomainEvent.ReadProgressChanged(progress))
   }
 
   fun markReadProgressCompleted(bookId: String, user: KomgaUser) {
     val media = mediaRepository.findById(bookId)
 
-    readProgressRepository.save(ReadProgress(bookId, user.id, media.pages.size, true))
+    val progress = ReadProgress(bookId, user.id, media.pages.size, true)
+    readProgressRepository.save(progress)
+    eventPublisher.publishEvent(DomainEvent.ReadProgressChanged(progress))
   }
 
-  fun deleteReadProgress(bookId: String, user: KomgaUser) {
-    readProgressRepository.delete(bookId, user.id)
+  fun deleteReadProgress(book: Book, user: KomgaUser) {
+    readProgressRepository.findByBookIdAndUserIdOrNull(book.id, user.id)?.let { progress ->
+      readProgressRepository.delete(book.id, user.id)
+      eventPublisher.publishEvent(DomainEvent.ReadProgressDeleted(progress))
+    }
+  }
+
+  fun deleteBookFiles(book: Book) {
+    if (book.path.notExists()) return logger.info { "Cannot delete book file, path does not exist: ${book.path}" }
+    if (!book.path.isWritable()) return logger.info { "Cannot delete book file, path is not writable: ${book.path}" }
+
+    val thumbnails = thumbnailBookRepository.findAllByBookIdAndType(book.id, ThumbnailBook.Type.SIDECAR)
+      .mapNotNull { it.url?.toURI()?.toPath() }
+      .filter { it.exists() && it.isWritable() }
+
+    if (book.path.deleteIfExists()) {
+      logger.info { "Deleted file: ${book.path}" }
+      historicalEventRepository.insert(HistoricalEvent.BookFileDeleted(book, "File was deleted by user request"))
+    }
+    thumbnails.forEach {
+      if (it.deleteIfExists()) logger.info { "Deleted file: $it" }
+    }
+
+    if (book.path.parent.listDirectoryEntries().isEmpty())
+      if (book.path.parent.deleteIfExists()) {
+        logger.info { "Deleted directory: ${book.path.parent}" }
+        historicalEventRepository.insert(HistoricalEvent.SeriesFolderDeleted(book.seriesId, book.path.parent, "Folder was deleted because it was empty"))
+      }
+
+    softDeleteMany(listOf(book))
   }
 }

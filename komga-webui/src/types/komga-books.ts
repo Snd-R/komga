@@ -1,18 +1,22 @@
-import { Context } from '@/types/context'
+import {Context} from '@/types/context'
+import {CopyMode} from '@/types/enum-books'
 
 export interface BookDto {
   id: string,
   seriesId: string,
+  seriesTitle: string,
   libraryId: string,
   name: string,
   url: string,
   number: number,
+  created: string,
   lastModified: string,
   sizeBytes: number,
   size: string,
   media: MediaDto,
   metadata: BookMetadataDto,
-  readProgress?: ReadProgressDto
+  readProgress?: ReadProgressDto,
+  deleted: boolean,
 
   // custom fields
   context: Context
@@ -31,6 +35,8 @@ export interface PageDto {
   mediaType: string,
   width?: number,
   height?: number,
+  sizeBytes?: number,
+  size: string,
 }
 
 export interface PageDtoWithUrl {
@@ -39,6 +45,8 @@ export interface PageDtoWithUrl {
   mediaType: string,
   width?: number,
   height?: number,
+  sizeBytes?: number,
+  size: string,
   url: string,
 }
 
@@ -57,8 +65,12 @@ export interface BookMetadataDto {
   releaseDateLock: boolean,
   authors: AuthorDto[],
   authorsLock: boolean,
-  tags: String[],
-  tagsLock: boolean
+  tags: string[],
+  tagsLock: boolean,
+  isbn: string,
+  isbnLock: boolean
+  links?: WebLinkDto[],
+  linksLock?: boolean
 }
 
 export interface ReadProgressDto {
@@ -81,13 +93,26 @@ export interface BookMetadataUpdateDto {
   releaseDateLock?: boolean,
   authors?: AuthorDto[],
   authorsLock?: boolean,
-  tags?: String[],
+  tags?: string[],
   tagsLock?: boolean
+  isbn?: string,
+  isbnLock?: boolean,
+  links?: WebLinkDto[],
+  linksLock?: boolean
+}
+
+export interface BookMetadataUpdateBatchDto {
+  [bookId: string]: BookMetadataUpdateDto
 }
 
 export interface AuthorDto {
   name: string,
   role: string
+}
+
+export interface WebLinkDto {
+  label: string,
+  url: string
 }
 
 export interface ReadProgressUpdateDto {
@@ -98,4 +123,23 @@ export interface ReadProgressUpdateDto {
 export interface BookFormat {
   type: string,
   color: string
+}
+
+export interface BookImportBatchDto {
+  books: BookImportDto[],
+  copyMode: CopyMode,
+}
+
+export interface BookImportDto {
+  sourceFile: string,
+  seriesId: string,
+  upgradeBookId?: string,
+  destinationName?: string,
+}
+
+export interface BookThumbnailDto {
+  id: string,
+  bookId: string,
+  type: string,
+  selected: boolean
 }

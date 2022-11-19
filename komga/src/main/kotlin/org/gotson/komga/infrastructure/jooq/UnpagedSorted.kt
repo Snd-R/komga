@@ -4,7 +4,7 @@ import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Sort
 
 class UnpagedSorted(
-  private val sort: Sort
+  private val sort: Sort,
 ) : Pageable {
 
   override fun getPageNumber(): Int {
@@ -28,6 +28,8 @@ class UnpagedSorted(
   }
 
   override fun first(): Pageable = this
+
+  override fun withPage(pageNumber: Int): Pageable = this
 
   override fun previousOrFirst(): Pageable = this
 }

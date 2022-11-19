@@ -1,59 +1,69 @@
-import com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask
-import com.rohanprabhu.gradle.plugins.kdjooq.database
-import com.rohanprabhu.gradle.plugins.kdjooq.generator
-import com.rohanprabhu.gradle.plugins.kdjooq.jdbc
-import com.rohanprabhu.gradle.plugins.kdjooq.jooqCodegenConfiguration
-import com.rohanprabhu.gradle.plugins.kdjooq.target
 import org.apache.tools.ant.taskdefs.condition.Os
+import org.gradle.crypto.checksum.Checksum
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
-import org.springframework.boot.gradle.tasks.bundling.BootJar
 
 plugins {
   run {
-    val kotlinVersion = "1.4.20"
     kotlin("jvm")
     kotlin("plugin.spring")
     kotlin("kapt")
   }
-  id("org.springframework.boot") version "2.4.1"
-  id("com.github.ben-manes.versions") version "0.36.0"
-  id("com.gorylenko.gradle-git-properties") version "2.2.4"
-  id("com.rohanprabhu.kotlin-dsl-jooq") version "0.4.6"
-  id("org.flywaydb.flyway") version "7.3.2"
+  id("org.springframework.boot") version "2.7.5"
+  id("com.gorylenko.gradle-git-properties") version "2.4.1"
+  id("nu.studer.jooq") version "5.2.2" // 6.0.0 requires Java 11
+  id("org.flywaydb.flyway") version "8.5.13"
   id("com.github.johnrengelman.processes") version "0.5.0"
-  id("org.springdoc.openapi-gradle-plugin") version "1.3.0"
+  id("org.springdoc.openapi-gradle-plugin") version "1.4.0"
+  id("org.gradle.crypto.checksum") version "1.4.0"
+
   jacoco
 }
 
 group = "org.gotson"
 
+val benchmarkSourceSet = sourceSets.create("benchmark") {
+  java {
+    compileClasspath += sourceSets.main.get().output
+    runtimeClasspath += sourceSets.main.get().runtimeClasspath
+  }
+}
+
+val benchmarkImplementation by configurations.getting {
+  extendsFrom(configurations.testImplementation.get())
+}
+val kaptBenchmark by configurations.getting {
+  extendsFrom(configurations.kaptTest.get())
+}
+
 dependencies {
   implementation(kotlin("stdlib-jdk8"))
   implementation(kotlin("reflect"))
 
-  implementation(platform("org.springframework.boot:spring-boot-dependencies:2.4.1"))
+  implementation(platform("org.springframework.boot:spring-boot-dependencies:2.7.5"))
 
   implementation("org.springframework.boot:spring-boot-starter-web")
   implementation("org.springframework.boot:spring-boot-starter-validation")
-  implementation("org.springframework.boot:spring-boot-starter-data-jdbc")
   implementation("org.springframework.boot:spring-boot-starter-actuator")
   implementation("org.springframework.boot:spring-boot-starter-security")
+  implementation("org.springframework.boot:spring-boot-starter-oauth2-client")
   implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
   implementation("org.springframework.boot:spring-boot-starter-artemis")
   implementation("org.springframework.boot:spring-boot-starter-jooq")
+  implementation("org.springframework.session:spring-session-core")
+  implementation("com.github.gotson:spring-session-caffeine:1.0.3")
 
-  kapt("org.springframework.boot:spring-boot-configuration-processor:2.4.1")
+  kapt("org.springframework.boot:spring-boot-configuration-processor:2.7.5")
 
   implementation("org.apache.activemq:artemis-jms-server")
 
   implementation("org.flywaydb:flyway-core")
 
-  implementation("io.github.microutils:kotlin-logging-jvm:2.0.4")
+  implementation("io.github.microutils:kotlin-logging-jvm:2.1.23") // 3.0 brings SLF4J 2
   implementation("io.micrometer:micrometer-registry-influx")
-  implementation("io.hawt:hawtio-springboot:2.12.1")
+  implementation("io.hawt:hawtio-springboot:2.16.1")
 
   run {
-    val springdocVersion = "1.5.2"
+    val springdocVersion = "1.6.12"
     implementation("org.springdoc:springdoc-openapi-ui:$springdocVersion")
     implementation("org.springdoc:springdoc-openapi-security:$springdocVersion")
     implementation("org.springdoc:springdoc-openapi-kotlin:$springdocVersion")
@@ -63,68 +73,85 @@ dependencies {
   implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
   implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-xml")
 
-  implementation("commons-io:commons-io:2.7")
-  implementation("org.apache.commons:commons-lang3:3.11")
+  implementation("commons-io:commons-io:2.11.0")
+  implementation("org.apache.commons:commons-lang3:3.12.0")
+  implementation("commons-validator:commons-validator:1.7")
 
-  implementation("com.ibm.icu:icu4j:68.2")
+  run {
+    val luceneVersion = "8.11.2" // 9.0.0 requires Java 11
+    implementation("org.apache.lucene:lucene-core:$luceneVersion")
+    implementation("org.apache.lucene:lucene-analyzers-common:$luceneVersion")
+    implementation("org.apache.lucene:lucene-queryparser:$luceneVersion")
+  }
 
-  implementation("org.apache.tika:tika-core:1.25")
-  implementation("org.apache.commons:commons-compress:1.20")
-  implementation("com.github.junrar:junrar:7.4.0")
-  implementation("org.apache.pdfbox:pdfbox:2.0.22")
+  implementation("com.ibm.icu:icu4j:72.1")
+
+  implementation("org.apache.tika:tika-core:2.4.1") // 2.5.0 brings SLF4J 2
+  implementation("org.apache.commons:commons-compress:1.22")
+  implementation("com.github.junrar:junrar:7.5.3")
+  implementation("org.apache.pdfbox:pdfbox:2.0.27")
   implementation("net.grey-panther:natural-comparator:1.1")
-  implementation("org.jsoup:jsoup:1.13.1")
+  implementation("org.jsoup:jsoup:1.15.3")
 
-  implementation("net.coobird:thumbnailator:0.4.13")
-  runtimeOnly("com.twelvemonkeys.imageio:imageio-jpeg:3.6.1")
-  runtimeOnly("com.twelvemonkeys.imageio:imageio-tiff:3.6.1")
-  runtimeOnly(files("$projectDir/libs/webp-imageio-decoder-plugin-0.2.jar"))
-  implementation("com.github.gotson:webp-imageio:0.2.0")
+  implementation("net.coobird:thumbnailator:0.4.18")
+  runtimeOnly("com.twelvemonkeys.imageio:imageio-jpeg:3.9.3")
+  runtimeOnly("com.twelvemonkeys.imageio:imageio-tiff:3.9.3")
+  runtimeOnly("com.twelvemonkeys.imageio:imageio-webp:3.9.3")
+  runtimeOnly("com.github.gotson.nightmonkeys:imageio-jxl:0.4.0")
   // support for jpeg2000
   runtimeOnly("com.github.jai-imageio:jai-imageio-jpeg2000:1.4.0")
-  runtimeOnly("org.apache.pdfbox:jbig2-imageio:3.0.3")
+  runtimeOnly("org.apache.pdfbox:jbig2-imageio:3.0.4")
+
+  // barcode scanning
+  implementation("com.google.zxing:core:3.5.1")
 
   implementation("com.jakewharton.byteunits:byteunits:0.9.1")
 
-  implementation("com.github.f4b6a3:tsid-creator:2.4.4")
+  implementation("com.github.f4b6a3:tsid-creator:5.0.2")
 
-  runtimeOnly("com.h2database:h2:1.4.200")
+  implementation("com.github.ben-manes.caffeine:caffeine:2.9.3") // 3.0.0 requires Java 11
 
-//  While waiting for https://github.com/xerial/sqlite-jdbc/pull/491 and https://github.com/xerial/sqlite-jdbc/pull/494
-//  runtimeOnly("org.xerial:sqlite-jdbc:3.32.3.2")
-//  jooqGeneratorRuntime("org.xerial:sqlite-jdbc:3.32.3.2")
-  runtimeOnly("com.github.gotson:sqlite-jdbc:3.32.3.6")
-  jooqGeneratorRuntime("com.github.gotson:sqlite-jdbc:3.32.3.6")
+  implementation("org.xerial:sqlite-jdbc:3.39.3.0")
+  jooqGenerator("org.xerial:sqlite-jdbc:3.39.3.0")
 
   testImplementation("org.springframework.boot:spring-boot-starter-test") {
     exclude(module = "mockito-core")
   }
   testImplementation("org.springframework.security:spring-security-test")
-  testImplementation("com.ninja-squad:springmockk:3.0.1")
-  testImplementation("io.mockk:mockk:1.10.4")
-  testImplementation("com.google.jimfs:jimfs:1.1")
+  testImplementation("com.ninja-squad:springmockk:3.1.1")
+  testImplementation("io.mockk:mockk:1.13.2")
+  testImplementation("com.google.jimfs:jimfs:1.2")
 
-  testImplementation("com.tngtech.archunit:archunit-junit5:0.15.0")
+  testImplementation("com.tngtech.archunit:archunit-junit5:0.23.1")
 
-  developmentOnly("org.springframework.boot:spring-boot-devtools:2.4.1")
+  benchmarkImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.6.4")
+  benchmarkImplementation("org.openjdk.jmh:jmh-core:1.35")
+  kaptBenchmark("org.openjdk.jmh:jmh-generator-annprocess:1.35")
+  kaptBenchmark("org.springframework.boot:spring-boot-configuration-processor:2.7.5")
+
+  developmentOnly("org.springframework.boot:spring-boot-devtools:2.7.5")
 }
 
 val webui = "$rootDir/komga-webui"
 tasks {
+  withType<JavaCompile> {
+    sourceCompatibility = "1.8"
+    targetCompatibility = "1.8"
+  }
   withType<KotlinCompile> {
     kotlinOptions {
       jvmTarget = "1.8"
-      freeCompilerArgs = listOf("-Xjsr305=strict", "-Xopt-in=kotlin.time.ExperimentalTime")
+      freeCompilerArgs = listOf(
+        "-Xjsr305=strict",
+        "-opt-in=kotlin.time.ExperimentalTime",
+      )
     }
-  }
-
-  withType<BootJar> {
-    layered()
   }
 
   withType<Test> {
     useJUnitPlatform()
     systemProperty("spring.profiles.active", "test")
+    maxHeapSize = "1G"
   }
 
   withType<ProcessResources> {
@@ -133,10 +160,20 @@ tasks {
     }
   }
 
+  getByName<Jar>("jar") {
+    enabled = false
+  }
+
+  register<Checksum>("checksums") {
+    group = "build"
+    inputFiles.from(files(bootJar))
+    appendFileNameToChecksum.set(true)
+  }
+
   // unpack Spring Boot's fat jar for better Docker image layering
   register<JavaExec>("unpack") {
     dependsOn(bootJar)
-    classpath = files(jar)
+    classpath = files(bootJar)
     jvmArgs = listOf("-Djarmode=layertools")
     args = "extract --destination $buildDir/dependency".split(" ")
     doFirst {
@@ -155,7 +192,7 @@ tasks {
       } else {
         "npm"
       },
-      "install"
+      "install",
     )
   }
 
@@ -172,7 +209,7 @@ tasks {
         "npm"
       },
       "run",
-      "build"
+      "build",
     )
   }
 
@@ -183,6 +220,13 @@ tasks {
     from("$webui/dist/")
     into("$projectDir/src/main/resources/public/")
   }
+
+  register<Test>("benchmark") {
+    group = "benchmark"
+    inputs.files(benchmarkSourceSet.output)
+    testClassesDirs = benchmarkSourceSet.output.classesDirs
+    classpath = benchmarkSourceSet.runtimeClasspath
+  }
 }
 
 springBoot {
@@ -190,6 +234,8 @@ springBoot {
     properties {
       // prevent task bootBuildInfo to rerun every time
       time = null
+      // but rerun if the gradle.properties file changed
+      inputs.file("$rootDir/gradle.properties")
     }
   }
 }
@@ -207,15 +253,16 @@ sourceSets {
 }
 
 val dbSqlite = mapOf(
-  "url" to "jdbc:sqlite:${project.buildDir}/generated/flyway/database.sqlite"
+  "url" to "jdbc:sqlite:${project.buildDir}/generated/flyway/database.sqlite",
 )
 val migrationDirsSqlite = listOf(
   "$projectDir/src/flyway/resources/db/migration/sqlite",
-  "$projectDir/src/flyway/kotlin/db/migration/sqlite"
+  "$projectDir/src/flyway/kotlin/db/migration/sqlite",
 )
 flyway {
   url = dbSqlite["url"]
   locations = arrayOf("classpath:db/migration/sqlite")
+  placeholders = mapOf("library-file-hashing" to "true")
 }
 tasks.flywayMigrate {
   // in order to include the Java migrations, flywayClasses must be run before flywayMigrate
@@ -229,55 +276,37 @@ tasks.flywayMigrate {
   mixed = true
 }
 
-jooqGenerator {
-  jooqVersion = "3.13.1"
-  configuration("primary", project.sourceSets.getByName("main")) {
-    databaseSources = migrationDirsSqlite
-
-    configuration = jooqCodegenConfiguration {
-      jdbc {
-        driver = "org.sqlite.JDBC"
-        url = dbSqlite["url"]
-      }
-
-      generator {
-        target {
-          packageName = "org.gotson.komga.jooq"
-          directory = "${project.buildDir}/generated/jooq/primary"
+jooq {
+  version.set("3.14.8")
+  configurations {
+    create("main") {
+      jooqConfiguration.apply {
+        logging = org.jooq.meta.jaxb.Logging.WARN
+        jdbc.apply {
+          driver = "org.sqlite.JDBC"
+          url = dbSqlite["url"]
         }
-
-        database {
-          name = "org.jooq.meta.sqlite.SQLiteDatabase"
+        generator.apply {
+          database.apply {
+            name = "org.jooq.meta.sqlite.SQLiteDatabase"
+          }
+          target.apply {
+            packageName = "org.gotson.komga.jooq"
+          }
         }
       }
     }
   }
 }
-val `jooq-codegen-primary` by project.tasks
-`jooq-codegen-primary`.dependsOn("flywayMigrate")
+tasks.named<nu.studer.gradle.jooq.JooqGenerate>("generateJooq") {
+  migrationDirsSqlite.forEach { inputs.dir(it) }
+  allInputsDeclared.set(true)
+  dependsOn("flywayMigrate")
+}
 
 openApi {
   outputDir.set(file("$projectDir/docs"))
-  forkProperties.set("-Dspring.profiles.active=claim")
-}
-
-fun isNonStable(version: String): Boolean {
-  val stableKeyword = listOf("RELEASE", "FINAL", "GA").any { version.toUpperCase().contains(it) }
-  val regex = "^[0-9,.v-]+(-r)?$".toRegex()
-  val isStable = stableKeyword || regex.matches(version)
-  return isStable.not()
-}
-tasks.named("dependencyUpdates", DependencyUpdatesTask::class.java).configure {
-  // disallow release candidates as upgradable versions from stable versions
-  rejectVersionIf {
-    isNonStable(candidate.version) && !isNonStable(currentVersion)
-  }
-  gradleReleaseChannel = "current"
-}
-
-configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
-  version.set("0.40.0")
-  filter {
-    exclude("**/db/migration/**")
+  customBootRun {
+    args.add("--spring.profiles.active=claim")
   }
 }

@@ -8,7 +8,7 @@ import org.gotson.komga.domain.model.makeSeries
 import org.gotson.komga.domain.persistence.BookRepository
 import org.gotson.komga.domain.persistence.LibraryRepository
 import org.gotson.komga.domain.persistence.SeriesRepository
-import org.gotson.komga.infrastructure.language.toIndexedMap
+import org.gotson.komga.language.toIndexedMap
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeAll
@@ -26,7 +26,7 @@ class ReadListDaoTest(
   @Autowired private val readListDao: ReadListDao,
   @Autowired private val bookRepository: BookRepository,
   @Autowired private val seriesRepository: SeriesRepository,
-  @Autowired private val libraryRepository: LibraryRepository
+  @Autowired private val libraryRepository: LibraryRepository,
 ) {
 
   private val library = makeLibrary()
@@ -60,7 +60,8 @@ class ReadListDaoTest(
 
     val readList = ReadList(
       name = "MyReadList",
-      bookIds = books.map { it.id }.toIndexedMap()
+      summary = "summary",
+      bookIds = books.map { it.id }.toIndexedMap(),
     )
 
     // when
@@ -71,6 +72,7 @@ class ReadListDaoTest(
 
     // then
     assertThat(created.name).isEqualTo(readList.name)
+    assertThat(created.summary).isEqualTo(readList.summary)
     assertThat(created.createdDate)
       .isEqualTo(created.lastModifiedDate)
       .isCloseTo(now, offset)
@@ -87,7 +89,7 @@ class ReadListDaoTest(
 
     val readList = ReadList(
       name = "MyReadList",
-      bookIds = books.map { it.id }.toIndexedMap()
+      bookIds = books.map { it.id }.toIndexedMap(),
     )
 
     readListDao.insert(readList)
@@ -95,7 +97,8 @@ class ReadListDaoTest(
     // when
     val updatedReadList = readList.copy(
       name = "UpdatedReadList",
-      bookIds = readList.bookIds.values.take(5).toIndexedMap()
+      summary = "summary",
+      bookIds = readList.bookIds.values.take(5).toIndexedMap(),
     )
 
     val now = LocalDateTime.now()
@@ -104,9 +107,10 @@ class ReadListDaoTest(
 
     // then
     assertThat(updated.name).isEqualTo(updatedReadList.name)
+    assertThat(updated.summary).isEqualTo(updatedReadList.summary)
     assertThat(updated.createdDate).isNotEqualTo(updated.lastModifiedDate)
     assertThat(updated.lastModifiedDate).isCloseTo(now, offset)
-    assertThat(updated.bookIds.values)
+    assertThat(updated.bookIds.values as Iterable<String>)
       .hasSize(5)
       .containsExactlyElementsOf(books.map { it.id }.take(5))
   }
@@ -121,13 +125,13 @@ class ReadListDaoTest(
 
     val readList1 = ReadList(
       name = "MyReadList",
-      bookIds = books.map { it.id }.toIndexedMap()
+      bookIds = books.map { it.id }.toIndexedMap(),
     )
     readListDao.insert(readList1)
 
     val readList2 = ReadList(
       name = "MyReadList",
-      bookIds = books.map { it.id }.take(5).toIndexedMap()
+      bookIds = books.map { it.id }.take(5).toIndexedMap(),
     )
     readListDao.insert(readList2)
 
@@ -136,12 +140,12 @@ class ReadListDaoTest(
 
     // then
     val rl1 = readListDao.findByIdOrNull(readList1.id)!!
-    assertThat(rl1.bookIds.values)
+    assertThat(rl1.bookIds.values as Iterable<String>)
       .hasSize(9)
       .doesNotContain(books.first().id)
 
     val col2 = readListDao.findByIdOrNull(readList2.id)!!
-    assertThat(col2.bookIds.values)
+    assertThat(col2.bookIds.values as Iterable<String>)
       .hasSize(4)
       .doesNotContain(books.first().id)
   }
@@ -157,75 +161,75 @@ class ReadListDaoTest(
     readListDao.insert(
       ReadList(
         name = "readListLibrary1",
-        bookIds = listOf(bookLibrary1.id).toIndexedMap()
-      )
+        bookIds = listOf(bookLibrary1.id).toIndexedMap(),
+      ),
     )
 
     readListDao.insert(
       ReadList(
         name = "readListLibrary2",
-        bookIds = listOf(bookLibrary2.id).toIndexedMap()
-      )
+        bookIds = listOf(bookLibrary2.id).toIndexedMap(),
+      ),
     )
 
     readListDao.insert(
       ReadList(
         name = "readListLibraryBoth",
-        bookIds = listOf(bookLibrary1.id, bookLibrary2.id).toIndexedMap()
-      )
+        bookIds = listOf(bookLibrary1.id, bookLibrary2.id).toIndexedMap(),
+      ),
     )
 
     // when
-    val foundLibrary1Filtered = readListDao.findAllByLibraries(listOf(library.id), listOf(library.id), pageable = Pageable.unpaged()).content
-    val foundLibrary1Unfiltered = readListDao.findAllByLibraries(listOf(library.id), null, pageable = Pageable.unpaged()).content
-    val foundLibrary2Filtered = readListDao.findAllByLibraries(listOf(library2.id), listOf(library2.id), pageable = Pageable.unpaged()).content
-    val foundLibrary2Unfiltered = readListDao.findAllByLibraries(listOf(library2.id), null, pageable = Pageable.unpaged()).content
-    val foundBothUnfiltered = readListDao.findAllByLibraries(listOf(library.id, library2.id), null, pageable = Pageable.unpaged()).content
+    val foundLibrary1Filtered = readListDao.findAll(listOf(library.id), listOf(library.id), pageable = Pageable.unpaged()).content
+    val foundLibrary1Unfiltered = readListDao.findAll(listOf(library.id), null, pageable = Pageable.unpaged()).content
+    val foundLibrary2Filtered = readListDao.findAll(listOf(library2.id), listOf(library2.id), pageable = Pageable.unpaged()).content
+    val foundLibrary2Unfiltered = readListDao.findAll(listOf(library2.id), null, pageable = Pageable.unpaged()).content
+    val foundBothUnfiltered = readListDao.findAll(listOf(library.id, library2.id), null, pageable = Pageable.unpaged()).content
 
     // then
     assertThat(foundLibrary1Filtered).hasSize(2)
     assertThat(foundLibrary1Filtered.map { it.name }).containsExactly("readListLibrary1", "readListLibraryBoth")
     with(foundLibrary1Filtered.find { it.name == "readListLibraryBoth" }!!) {
-      assertThat(bookIds.values)
+      assertThat(bookIds.values as Iterable<String>)
         .hasSize(1)
         .containsExactly(bookLibrary1.id)
-      assertThat(filtered).isTrue()
+      assertThat(filtered).isTrue
     }
 
     assertThat(foundLibrary1Unfiltered).hasSize(2)
     assertThat(foundLibrary1Unfiltered.map { it.name }).containsExactly("readListLibrary1", "readListLibraryBoth")
     with(foundLibrary1Unfiltered.find { it.name == "readListLibraryBoth" }!!) {
-      assertThat(bookIds.values)
+      assertThat(bookIds.values as Iterable<String>)
         .hasSize(2)
         .containsExactly(bookLibrary1.id, bookLibrary2.id)
-      assertThat(filtered).isFalse()
+      assertThat(filtered).isFalse
     }
 
     assertThat(foundLibrary2Filtered).hasSize(2)
     assertThat(foundLibrary2Filtered.map { it.name }).containsExactly("readListLibrary2", "readListLibraryBoth")
     with(foundLibrary2Filtered.find { it.name == "readListLibraryBoth" }!!) {
-      assertThat(bookIds.values)
+      assertThat(bookIds.values as Iterable<String>)
         .hasSize(1)
         .containsExactly(bookLibrary2.id)
-      assertThat(filtered).isTrue()
+      assertThat(filtered).isTrue
     }
 
     assertThat(foundLibrary2Unfiltered).hasSize(2)
     assertThat(foundLibrary2Unfiltered.map { it.name }).containsExactly("readListLibrary2", "readListLibraryBoth")
     with(foundLibrary2Unfiltered.find { it.name == "readListLibraryBoth" }!!) {
-      assertThat(bookIds.values)
+      assertThat(bookIds.values as Iterable<String>)
         .hasSize(2)
         .containsExactly(bookLibrary1.id, bookLibrary2.id)
-      assertThat(filtered).isFalse()
+      assertThat(filtered).isFalse
     }
 
     assertThat(foundBothUnfiltered).hasSize(3)
     assertThat(foundBothUnfiltered.map { it.name }).containsExactly("readListLibrary1", "readListLibrary2", "readListLibraryBoth")
     with(foundBothUnfiltered.find { it.name == "readListLibraryBoth" }!!) {
-      assertThat(bookIds.values)
+      assertThat(bookIds.values as Iterable<String>)
         .hasSize(2)
         .containsExactly(bookLibrary1.id, bookLibrary2.id)
-      assertThat(filtered).isFalse()
+      assertThat(filtered).isFalse
     }
   }
 }

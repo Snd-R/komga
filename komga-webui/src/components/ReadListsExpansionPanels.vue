@@ -3,7 +3,7 @@
     <v-expansion-panel v-for="(r, index) in readLists"
                        :key="index"
     >
-      <v-expansion-panel-header>{{ r.name }} read list</v-expansion-panel-header>
+      <v-expansion-panel-header>{{ $t('readlists_expansion_panel.title', {name: r.name}) }}</v-expansion-panel-header>
       <v-expansion-panel-content>
         <horizontal-scroller>
           <template v-slot:prepend>
@@ -13,6 +13,7 @@
           </template>
           <template v-slot:content>
             <item-browser :items="readListsContent[index]"
+                          :item-context="[ItemContext.SHOW_SERIES]"
                           nowrap
                           :selectable="false"
                           :action-menu="false"
@@ -31,6 +32,7 @@ import ItemBrowser from '@/components/ItemBrowser.vue'
 import Vue from 'vue'
 import {BookDto} from '@/types/komga-books'
 import {ContextOrigin} from '@/types/context'
+import {ItemContext} from '@/types/items'
 
 export default Vue.extend({
   name: 'ReadListsExpansionPanels',
@@ -46,6 +48,7 @@ export default Vue.extend({
   },
   data: () => {
     return {
+      ItemContext,
       readListPanel: undefined as number | undefined,
       readListsContent: [[]] as any[],
     }

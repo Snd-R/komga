@@ -42,9 +42,12 @@
 
     </toolbar-sticky>
 
-    <series-multi-select-bar
+    <multi-select-bar
       v-model="selectedSeries"
+      kind="series"
+      show-select-all
       @unselect-all="selectedSeries = []"
+      @select-all="selectedSeries = series"
       @mark-read="markSelectedRead"
       @mark-unread="markSelectedUnread"
       @add-to-collection="addToCollection"
@@ -65,7 +68,11 @@
       </toolbar-sticky>
     </v-scroll-y-transition>
 
-    <filter-drawer v-model="drawer">
+    <filter-drawer
+      v-model="drawer"
+      :clear-button="filterActive"
+      @clear="resetFilters"
+    >
       <template v-slot:default>
         <filter-list
           :filters-options="filterOptionsList"
@@ -89,13 +96,14 @@
         icon="mdi-book-multiple"
         icon-color="secondary"
       >
+        <v-btn @click="resetFilters">{{ $t('common.reset_filters') }}</v-btn>
       </empty-state>
 
       <item-browser
         v-else
         :items.sync="series"
         :selected.sync="selectedSeries"
-        :edit-function="editSingleSeries"
+        :edit-function="isAdmin ? editSingleSeries : undefined"
         :draggable="editElements && collection.ordered"
         :deletable="editElements"
       />
@@ -109,11 +117,18 @@
 import CollectionActionsMenu from '@/components/menus/CollectionActionsMenu.vue'
 import ItemBrowser from '@/components/ItemBrowser.vue'
 import ToolbarSticky from '@/components/bars/ToolbarSticky.vue'
-import {COLLECTION_CHANGED, COLLECTION_DELETED, SERIES_CHANGED} from '@/types/events'
+import {
+  COLLECTION_CHANGED,
+  COLLECTION_DELETED,
+  READPROGRESS_SERIES_CHANGED,
+  READPROGRESS_SERIES_DELETED,
+  SERIES_CHANGED,
+  SERIES_DELETED,
+} from '@/types/events'
 import Vue from 'vue'
-import SeriesMultiSelectBar from '@/components/bars/SeriesMultiSelectBar.vue'
+import MultiSelectBar from '@/components/bars/MultiSelectBar.vue'
 import {LIBRARIES_ALL} from '@/types/library'
-import {ReadStatus} from '@/types/enum-books'
+import {ReadStatus, replaceCompositeReadStatus} from '@/types/enum-books'
 import {SeriesStatus, SeriesStatusKeyValue} from '@/types/enum-series'
 import {mergeFilterParams, toNameValue} from '@/functions/filter'
 import FilterDrawer from '@/components/FilterDrawer.vue'
@@ -121,8 +136,13 @@ import FilterPanels from '@/components/FilterPanels.vue'
 import FilterList from '@/components/FilterList.vue'
 import {Location} from 'vue-router'
 import EmptyState from '@/components/EmptyState.vue'
-import {parseQueryFilter} from '@/functions/query-params'
-import {SeriesDto} from "@/types/komga-series";
+import {SeriesDto} from '@/types/komga-series'
+import {authorRoles} from '@/types/author-roles'
+import {AuthorDto} from '@/types/komga-books'
+import {CollectionSseDto, ReadProgressSeriesSseDto, SeriesSseDto} from '@/types/komga-sse'
+import {throttle} from 'lodash'
+import {LibraryDto} from '@/types/komga-libraries'
+import {parseBooleanFilter} from '@/functions/query-params'
 
 export default Vue.extend({
   name: 'BrowseCollection',
@@ -130,7 +150,7 @@ export default Vue.extend({
     ToolbarSticky,
     ItemBrowser,
     CollectionActionsMenu,
-    SeriesMultiSelectBar,
+    MultiSelectBar,
     FilterDrawer,
     FilterPanels,
     FilterList,
@@ -163,52 +183,37 @@ export default Vue.extend({
       required: true,
     },
   },
-  watch: {
-    selectedSeries(val: SeriesDto[]) {
-      val.forEach(s => {
-        let index = this.series.findIndex(x => x.id === s.id)
-        if (index !== -1) {
-          this.series.splice(index, 1, s)
-        }
-        index = this.seriesCopy.findIndex(x => x.id === s.id)
-        if (index !== -1) {
-          this.seriesCopy.splice(index, 1, s)
-        }
-      })
-    },
-  },
   created() {
     this.$eventHub.$on(COLLECTION_CHANGED, this.collectionChanged)
-    this.$eventHub.$on(COLLECTION_DELETED, this.afterDelete)
-    this.$eventHub.$on(SERIES_CHANGED, this.reloadSeries)
+    this.$eventHub.$on(COLLECTION_DELETED, this.collectionDeleted)
+    this.$eventHub.$on(SERIES_CHANGED, this.seriesChanged)
+    this.$eventHub.$on(SERIES_DELETED, this.seriesChanged)
+    this.$eventHub.$on(READPROGRESS_SERIES_CHANGED, this.readProgressChanged)
+    this.$eventHub.$on(READPROGRESS_SERIES_DELETED, this.readProgressChanged)
   },
   beforeDestroy() {
     this.$eventHub.$off(COLLECTION_CHANGED, this.collectionChanged)
-    this.$eventHub.$off(COLLECTION_DELETED, this.afterDelete)
-    this.$eventHub.$off(SERIES_CHANGED, this.reloadSeries)
+    this.$eventHub.$off(COLLECTION_DELETED, this.collectionDeleted)
+    this.$eventHub.$off(SERIES_CHANGED, this.seriesChanged)
+    this.$eventHub.$off(SERIES_DELETED, this.seriesChanged)
+    this.$eventHub.$off(READPROGRESS_SERIES_CHANGED, this.readProgressChanged)
+    this.$eventHub.$off(READPROGRESS_SERIES_DELETED, this.readProgressChanged)
   },
-  mounted() {
-    this.loadCollection(this.collectionId)
+  async mounted() {
+    await this.resetParams(this.$route, this.collectionId)
 
-    this.resetParams(this.$route)
+    this.loadCollection(this.collectionId)
 
     this.setWatches()
   },
-  beforeRouteUpdate(to, from, next) {
+  async beforeRouteUpdate(to, from, next) {
     if (to.params.collectionId !== from.params.collectionId) {
       this.unsetWatches()
 
       // reset
-      this.resetParams(this.$route)
+      await this.resetParams(this.$route, to.params.collectionId)
       this.series = []
       this.editElements = false
-      this.filterOptions.library = []
-      this.filterOptions.genre = []
-      this.filterOptions.tag = []
-      this.filterOptions.publisher = []
-      this.filterOptions.language = []
-      this.filterOptions.ageRating = []
-      this.filterOptions.releaseDate = []
 
       this.loadCollection(to.params.collectionId)
 
@@ -220,11 +225,20 @@ export default Vue.extend({
   computed: {
     filterOptionsList(): FiltersOptions {
       return {
-        readStatus: {values: [{name: this.$i18n.t('filter.unread').toString(), value: ReadStatus.UNREAD}]},
+        readStatus: {
+          values: [
+            {name: this.$i18n.t('filter.unread').toString(), value: ReadStatus.UNREAD_AND_IN_PROGRESS},
+            {name: this.$t('filter.in_progress').toString(), value: ReadStatus.IN_PROGRESS},
+            {name: this.$t('filter.read').toString(), value: ReadStatus.READ},
+          ],
+        },
+        complete: {
+          values: [{name: this.$t('filter.complete').toString(), value: 'true', nValue: 'false'}],
+        },
       } as FiltersOptions
     },
     filterOptionsPanel(): FiltersOptions {
-      return {
+      const r = {
         library: {name: this.$t('filter.library').toString(), values: this.filterOptions.library},
         status: {name: this.$t('filter.status').toString(), values: SeriesStatusKeyValue()},
         genre: {name: this.$t('filter.genre').toString(), values: this.filterOptions.genre},
@@ -241,6 +255,17 @@ export default Vue.extend({
         },
         releaseDate: {name: this.$t('filter.release_date').toString(), values: this.filterOptions.releaseDate},
       } as FiltersOptions
+      authorRoles.forEach((role: string) => {
+        r[role] = {
+          name: this.$t(`author_roles.${role}`).toString(),
+          search: async search => {
+            return (await this.$komgaReferential.getAuthors(search, role, undefined, this.collectionId))
+              .content
+              .map(x => x.name)
+          },
+        }
+      })
+      return r
     },
     isAdmin(): boolean {
       return this.$store.getters.meAdmin
@@ -250,35 +275,94 @@ export default Vue.extend({
     },
   },
   methods: {
-    resetParams(route: any) {
-      if (route.query.status || route.query.readStatus || route.query.genre || route.query.tag || route.query.language || route.query.ageRating || route.query.library) {
-        this.filters.status = parseQueryFilter(route.query.status, Object.keys(SeriesStatus))
-        this.filters.readStatus = parseQueryFilter(route.query.readStatus, Object.keys(ReadStatus))
-        this.filters.library = parseQueryFilter(route.query.library, this.filterOptions.library.map(x => x.value))
-        this.filters.genre = parseQueryFilter(route.query.genre, this.filterOptions.genre.map(x => x.value))
-        this.filters.tag = parseQueryFilter(route.query.tag, this.filterOptions.tag.map(x => x.value))
-        this.filters.language = parseQueryFilter(route.query.language, this.filterOptions.language.map(x => x.value))
-        this.filters.ageRating = parseQueryFilter(route.query.ageRating, this.filterOptions.ageRating.map(x => x.value))
-        this.filters.releaseDate = parseQueryFilter(route.query.releaseDate, this.filterOptions.releaseDate.map(x => x.value))
-      } else {
-        this.filters = this.$cookies.get(this.cookieFilter(route.params.collectionId)) || {} as FiltersActive
+    resetFilters() {
+      this.drawer = false
+      for (const prop in this.filters) {
+        this.$set(this.filters, prop, [])
       }
+      this.$store.commit('setCollectionFilter', {id: this.collectionId, filter: this.filters})
+      this.updateRouteAndReload()
     },
-    cookieFilter(collectionId: string): string {
-      return `collection.filter.${collectionId}`
+    async resetParams(route: any, collectionId: string) {
+      // load dynamic filters
+      this.$set(this.filterOptions, 'library', this.$store.state.komgaLibraries.libraries.map((x: LibraryDto) => ({
+        name: x.name,
+        value: x.id,
+      })))
+
+      const [genres, tags, publishers, languages, ageRatings, releaseDates] = await Promise.all([
+        this.$komgaReferential.getGenres(undefined, collectionId),
+        this.$komgaReferential.getSeriesAndBookTags(undefined, collectionId),
+        this.$komgaReferential.getPublishers(undefined, collectionId),
+        this.$komgaReferential.getLanguages(undefined, collectionId),
+        this.$komgaReferential.getAgeRatings(undefined, collectionId),
+        this.$komgaReferential.getSeriesReleaseDates(undefined, collectionId),
+      ])
+      this.$set(this.filterOptions, 'genre', toNameValue(genres))
+      this.$set(this.filterOptions, 'tag', toNameValue(tags))
+      this.$set(this.filterOptions, 'publisher', toNameValue(publishers))
+      this.$set(this.filterOptions, 'language', (languages))
+      this.$set(this.filterOptions, 'ageRating', toNameValue(ageRatings))
+      this.$set(this.filterOptions, 'releaseDate', toNameValue(releaseDates))
+
+      // get filter from query params or local storage and validate with available filter values
+      let activeFilters: any
+      if (route.query.status || route.query.readStatus || route.query.genre || route.query.tag || route.query.language || route.query.ageRating || route.query.library || route.query.publisher || authorRoles.some(role => role in route.query) || route.query.complete) {
+        activeFilters = {
+          status: route.query.status || [],
+          readStatus: route.query.readStatus || [],
+          library: route.query.library || [],
+          genre: route.query.genre || [],
+          tag: route.query.tag || [],
+          publisher: route.query.publisher || [],
+          language: route.query.language || [],
+          ageRating: route.query.ageRating || [],
+          releaseDate: route.query.releaseDate || [],
+          complete: route.query.complete || [],
+        }
+        authorRoles.forEach((role: string) => {
+          activeFilters[role] = route.query[role] || []
+        })
+      } else {
+        activeFilters = this.$store.getters.getCollectionFilter(route.params.collectionId) || {} as FiltersActive
+      }
+      this.filters = this.validateFilters(activeFilters)
+    },
+    validateFilters(filters: FiltersActive): FiltersActive {
+      const validFilter = {
+        status: filters.status?.filter(x => Object.keys(SeriesStatus).includes(x)) || [],
+        readStatus: filters.readStatus?.filter(x => Object.keys(ReadStatus).includes(x)) || [],
+        library: filters.library?.filter(x => this.filterOptions.library.map(n => n.value).includes(x)) || [],
+        genre: filters.genre?.filter(x => this.filterOptions.genre.map(n => n.value).includes(x)) || [],
+        tag: filters.tag?.filter(x => this.filterOptions.tag.map(n => n.value).includes(x)) || [],
+        publisher: filters.publisher?.filter(x => this.filterOptions.publisher.map(n => n.value).includes(x)) || [],
+        language: filters.language?.filter(x => this.filterOptions.language.map(n => n.value).includes(x)) || [],
+        ageRating: filters.ageRating?.filter(x => this.filterOptions.ageRating.map(n => n.value).includes(x)) || [],
+        releaseDate: filters.releaseDate?.filter(x => this.filterOptions.releaseDate.map(n => n.value).includes(x)) || [],
+        complete: filters.complete?.filter(x => x === 'true' || x === 'false') || [],
+      } as any
+      authorRoles.forEach((role: string) => {
+        validFilter[role] = filters[role] || []
+      })
+      return validFilter
     },
     setWatches() {
       this.filterUnwatch = this.$watch('filters', (val) => {
-        this.$cookies.set(this.cookieFilter(this.collectionId), val, Infinity)
+        this.$store.commit('setCollectionFilter', {id: this.collectionId, filter: val})
         this.updateRouteAndReload()
       })
     },
     unsetWatches() {
       this.filterUnwatch()
     },
-    collectionChanged(event: EventCollectionChanged) {
-      if (event.id === this.collectionId) {
+    collectionChanged(event: CollectionSseDto) {
+      if (event.collectionId === this.collectionId) {
         this.loadCollection(this.collectionId)
+      }
+    },
+    collectionDeleted(event: CollectionSseDto) {
+      if (event.collectionId === this.collectionId) {
+        this.$router.push({name: 'browse-collections', params: {libraryId: LIBRARIES_ALL}})
       }
     },
     updateRouteAndReload() {
@@ -289,25 +373,28 @@ export default Vue.extend({
 
       this.setWatches()
     },
+    reloadSeries: throttle(function (this: any) {
+      this.loadSeries(this.collectionId)
+    }, 1000),
     async loadSeries(collectionId: string) {
-      this.series = (await this.$komgaCollections.getSeries(collectionId, {unpaged: true} as PageRequest, this.filters.library, this.filters.status, this.filters.readStatus, this.filters.genre, this.filters.tag, this.filters.language, this.filters.publisher, this.filters.ageRating, this.filters.releaseDate)).content
+      let authorsFilter = [] as AuthorDto[]
+      authorRoles.forEach((role: string) => {
+        if (role in this.filters) this.filters[role].forEach((name: string) => authorsFilter.push({
+          name: name,
+          role: role,
+        }))
+      })
+
+      const complete = parseBooleanFilter(this.filters.complete)
+      this.series = (await this.$komgaCollections.getSeries(collectionId, {unpaged: true} as PageRequest, this.filters.library, this.filters.status, replaceCompositeReadStatus(this.filters.readStatus), this.filters.genre, this.filters.tag, this.filters.language, this.filters.publisher, this.filters.ageRating, this.filters.releaseDate, authorsFilter, complete)).content
       this.seriesCopy = [...this.series]
       this.selectedSeries = []
     },
     async loadCollection(collectionId: string) {
-      this.collection = await this.$komgaCollections.getOneCollection(collectionId)
-      await this.loadSeries(collectionId)
+      this.$komgaCollections.getOneCollection(collectionId)
+        .then(v => this.collection = v)
 
-      this.filterOptions.library = this.$store.state.komgaLibraries.libraries.map((x: LibraryDto) => ({
-        name: x.name,
-        value: x.id,
-      }))
-      this.filterOptions.genre = toNameValue(await this.$komgaReferential.getGenres(undefined, collectionId))
-      this.filterOptions.tag = toNameValue(await this.$komgaReferential.getTags(undefined, undefined, collectionId))
-      this.filterOptions.publisher = toNameValue(await this.$komgaReferential.getPublishers(undefined, collectionId))
-      this.filterOptions.language = (await this.$komgaReferential.getLanguages(undefined, collectionId))
-      this.filterOptions.ageRating = toNameValue(await this.$komgaReferential.getAgeRatings(undefined, collectionId))
-      this.filterOptions.releaseDate = toNameValue(await this.$komgaReferential.getSeriesReleaseDates(undefined, collectionId))
+      await this.loadSeries(collectionId)
     },
     updateRoute() {
       const loc = {
@@ -329,17 +416,13 @@ export default Vue.extend({
       await Promise.all(this.selectedSeries.map(s =>
         this.$komgaSeries.markAsRead(s.id),
       ))
-      this.selectedSeries = await Promise.all(this.selectedSeries.map(s =>
-        this.$komgaSeries.getOneSeries(s.id),
-      ))
+      this.selectedSeries = []
     },
     async markSelectedUnread() {
       await Promise.all(this.selectedSeries.map(s =>
         this.$komgaSeries.markAsUnread(s.id),
       ))
-      this.selectedSeries = await Promise.all(this.selectedSeries.map(s =>
-        this.$komgaSeries.getOneSeries(s.id),
-      ))
+      this.selectedSeries = []
     },
     addToCollection() {
       this.$store.dispatch('dialogAddSeriesToCollection', this.selectedSeries)
@@ -358,16 +441,15 @@ export default Vue.extend({
         seriesIds: this.series.map(x => x.id),
       } as CollectionUpdateDto
       this.$komgaCollections.patchCollection(this.collectionId, update)
-      this.loadCollection(this.collectionId)
     },
     editCollection() {
       this.$store.dispatch('dialogEditCollection', this.collection)
     },
-    afterDelete() {
-      this.$router.push({name: 'browse-collections', params: {libraryId: LIBRARIES_ALL}})
+    seriesChanged(event: SeriesSseDto) {
+      if (this.series.some(s => s.id === event.seriesId)) this.reloadSeries()
     },
-    reloadSeries(event: EventSeriesChanged) {
-      if (this.series.some(s => s.id === event.id)) this.loadCollection(this.collectionId)
+    readProgressChanged(event: ReadProgressSeriesSseDto) {
+      if (this.series.some(b => b.id === event.seriesId)) this.reloadSeries()
     },
   },
 })

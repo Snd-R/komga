@@ -1,4 +1,4 @@
-FROM adoptopenjdk:11-jre-hotspot-bionic
+FROM eclipse-temurin:11-jre
 VOLUME /tmp
 ARG DEPENDENCY=build/dependency
 WORKDIR app
@@ -6,10 +6,8 @@ COPY ${DEPENDENCY}/dependencies/ ./
 COPY ${DEPENDENCY}/spring-boot-loader/ ./
 COPY ${DEPENDENCY}/snapshot-dependencies/ ./
 COPY ${DEPENDENCY}/application/ ./
-ENV KOMGA_DATABASE_BACKUP_PATH="/config/database-backup.zip"
-ENV KOMGA_DATABASE_FILE="/config/database.sqlite"
-ENV SPRING_DATASOURCE_URL="jdbc:h2:/config/database.h2"
-ENV SPRING_ARTEMIS_EMBEDDED_DATA_DIRECTORY="/config/artemis"
-ENV LOGGING_FILE_NAME="/config/logs/komga.log"
-ENTRYPOINT ["java", "org.springframework.boot.loader.JarLauncher"]
+ENV KOMGA_CONFIGDIR="/config"
+ENV LC_ALL=en_US.UTF-8
+ENTRYPOINT ["java", "org.springframework.boot.loader.JarLauncher", "--spring.config.additional-location=file:/config/"]
 EXPOSE 8080
+LABEL org.opencontainers.image.source="https://github.com/gotson/komga"

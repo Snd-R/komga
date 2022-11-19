@@ -5,8 +5,6 @@ komga:
     file: ":memory:"
 
 spring:
-  datasource:
-    url: jdbc:h2:mem:testdb
   flyway:
     enabled: true
   artemis:
@@ -15,4 +13,5 @@ spring:
 
 logging:
   level:
-    org.jooq: DEBUG
+    org.gotson.komga: DEBUG
+#    org.jooq: DEBUG

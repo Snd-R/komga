@@ -2,48 +2,72 @@ import urls from '@/functions/urls'
 import Vue from 'vue'
 import Router from 'vue-router'
 import store from './store'
+import {LIBRARIES_ALL, LIBRARY_ROUTE} from '@/types/library'
+
+const qs = require('qs')
 
 Vue.use(Router)
 
 const lStore = store as any
 
 const adminGuard = (to: any, from: any, next: any) => {
-  if (!lStore.getters.meAdmin) next({ name: 'home' })
+  if (!lStore.getters.meAdmin) next({name: 'home'})
   else next()
 }
 
 const noLibraryGuard = (to: any, from: any, next: any) => {
   if (lStore.state.komgaLibraries.libraries.length === 0) {
-    next({ name: 'welcome' })
+    next({name: 'welcome'})
   } else next()
+}
+
+const getLibraryRoute = (libraryId: string) => {
+  switch ((lStore.getters.getLibraryRoute(libraryId) as LIBRARY_ROUTE)) {
+    case LIBRARY_ROUTE.COLLECTIONS:
+      return 'browse-collections'
+    case LIBRARY_ROUTE.READLISTS:
+      return 'browse-readlists'
+    case LIBRARY_ROUTE.BROWSE:
+      return 'browse-libraries'
+    case LIBRARY_ROUTE.RECOMMENDED:
+    default:
+      return libraryId === LIBRARIES_ALL ? 'browse-libraries' : 'recommended-libraries'
+  }
 }
 
 const router = new Router({
   mode: 'history',
   base: urls.base,
+  parseQuery(query: string) {
+    return qs.parse(query)
+  },
+  stringifyQuery(query: Object) {
+    const res = qs.stringify(query)
+    return res ? `?${res}` : ''
+  },
   routes: [
     {
       path: '/',
       name: 'home',
-      redirect: { name: 'dashboard' },
-      component: () => import(/* webpackChunkName: "home" */ './views/Home.vue'),
+      redirect: {name: 'dashboard'},
+      component: () => import(/* webpackChunkName: "home" */ './views/HomeView.vue'),
       children: [
         {
           path: '/welcome',
           name: 'welcome',
-          component: () => import(/* webpackChunkName: "welcome" */ './views/Welcome.vue'),
+          component: () => import(/* webpackChunkName: "welcome" */ './views/WelcomeView.vue'),
         },
         {
           path: '/dashboard',
           name: 'dashboard',
           beforeEnter: noLibraryGuard,
-          component: () => import(/* webpackChunkName: "dashboard" */ './views/Dashboard.vue'),
+          component: () => import(/* webpackChunkName: "dashboard" */ './views/DashboardView.vue'),
         },
         {
           path: '/settings',
           name: 'settings',
-          redirect: { name: 'settings-analysis' },
-          component: () => import(/* webpackChunkName: "settings" */ './views/Settings.vue'),
+          redirect: {name: 'settings-users'},
+          component: () => import(/* webpackChunkName: "settings" */ './views/SettingsHolder.vue'),
           children: [
             {
               path: '/settings/users',
@@ -59,85 +83,173 @@ const router = new Router({
               ],
             },
             {
-              path: '/settings/analysis',
-              name: 'settings-analysis',
+              path: '/settings/server',
+              name: 'settings-server',
               beforeEnter: adminGuard,
-              component: () => import(/* webpackChunkName: "settings-users" */ './views/SettingsMediaAnalysis.vue'),
+              component: () => import(/* webpackChunkName: "settings-server" */ './views/SettingsServer.vue'),
+            },
+            {
+              path: '/settings/metrics',
+              name: 'metrics',
+              beforeEnter: adminGuard,
+              component: () => import(/* webpackChunkName: "metrics" */ './views/Metrics.vue'),
             },
           ],
         },
+        {
+          path: '/media-management',
+          name: 'media-management',
+          redirect: {name: 'media-analysis'},
+          component: () => import(/* webpackChunkName: "media-management" */ './views/MediaManagement.vue'),
+          children: [
+            {
+              path: '/media-management/analysis',
+              name: 'media-analysis',
+              beforeEnter: adminGuard,
+              component: () => import(/* webpackChunkName: "media-analysis" */ './views/MediaAnalysis.vue'),
+            },
+            {
+              path: '/media-management/duplicate-files',
+              name: 'duplicate-files',
+              beforeEnter: adminGuard,
+              component: () => import(/* webpackChunkName: "duplicate-files" */ './views/DuplicateFiles.vue'),
+            },
+            {
+              path: '/media-management/duplicate-pages',
+              name: 'duplicate-pages',
+              redirect: {name: 'settings-duplicate-pages-known'},
+              component: () => import(/* webpackChunkName: "duplicate-pages" */ './views/DuplicatePagesHolder.vue'),
+              children: [
+                {
+                  path: '/media-management/duplicate-pages/known',
+                  name: 'settings-duplicate-pages-known',
+                  beforeEnter: adminGuard,
+                  component: () => import(/* webpackChunkName: "duplicate-pages" */ './views/DuplicatePagesKnown.vue'),
+                },
+                {
+                  path: '/media-management/duplicate-pages/unknown',
+                  name: 'settings-duplicate-pages-unknown',
+                  beforeEnter: adminGuard,
+                  component: () => import(/* webpackChunkName: "duplicate-pages" */ './views/DuplicatePagesUnknown.vue'),
+                },
+              ],
+            },
+          ],
+        },
+        {
+          path: '/history',
+          name: 'history',
+          component: () => import(/* webpackChunkName: "history" */ './views/HistoryView.vue'),
+        },
+
         {
           path: '/account',
           name: 'account',
           component: () => import(/* webpackChunkName: "account" */ './views/AccountSettings.vue'),
         },
         {
+          path: '/libraries/:libraryId?',
+          name: 'libraries',
+          redirect: (route) => ({
+            name: getLibraryRoute(route.params.libraryId || LIBRARIES_ALL),
+            params: {libraryId: route.params.libraryId || LIBRARIES_ALL},
+          }),
+        },
+        {
+          path: '/libraries/:libraryId/recommended',
+          name: 'recommended-libraries',
+          beforeEnter: noLibraryGuard,
+          component: () => import(/* webpackChunkName: "dashboard" */ './views/DashboardView.vue'),
+          props: (route) => ({libraryId: route.params.libraryId}),
+        },
+        {
           path: '/libraries/:libraryId/series',
           name: 'browse-libraries',
           beforeEnter: noLibraryGuard,
           component: () => import(/* webpackChunkName: "browse-libraries" */ './views/BrowseLibraries.vue'),
-          props: (route) => ({ libraryId: route.params.libraryId }),
+          props: (route) => ({libraryId: route.params.libraryId}),
         },
         {
           path: '/libraries/:libraryId/collections',
           name: 'browse-collections',
           beforeEnter: noLibraryGuard,
           component: () => import(/* webpackChunkName: "browse-collections" */ './views/BrowseCollections.vue'),
-          props: (route) => ({ libraryId: route.params.libraryId }),
+          props: (route) => ({libraryId: route.params.libraryId}),
         },
         {
           path: '/libraries/:libraryId/readlists',
           name: 'browse-readlists',
           beforeEnter: noLibraryGuard,
           component: () => import(/* webpackChunkName: "browse-readlists" */ './views/BrowseReadLists.vue'),
-          props: (route) => ({ libraryId: route.params.libraryId }),
+          props: (route) => ({libraryId: route.params.libraryId}),
         },
         {
           path: '/collections/:collectionId',
           name: 'browse-collection',
           component: () => import(/* webpackChunkName: "browse-collection" */ './views/BrowseCollection.vue'),
-          props: (route) => ({ collectionId: route.params.collectionId }),
+          props: (route) => ({collectionId: route.params.collectionId}),
         },
         {
           path: '/readlists/:readListId',
           name: 'browse-readlist',
           component: () => import(/* webpackChunkName: "browse-readlist" */ './views/BrowseReadList.vue'),
-          props: (route) => ({ readListId: route.params.readListId }),
+          props: (route) => ({readListId: route.params.readListId}),
         },
         {
           path: '/series/:seriesId',
           name: 'browse-series',
           component: () => import(/* webpackChunkName: "browse-series" */ './views/BrowseSeries.vue'),
-          props: (route) => ({ seriesId: route.params.seriesId }),
+          props: (route) => ({seriesId: route.params.seriesId}),
         },
         {
           path: '/book/:bookId',
           name: 'browse-book',
           component: () => import(/* webpackChunkName: "browse-book" */ './views/BrowseBook.vue'),
-          props: (route) => ({ bookId: route.params.bookId }),
+          props: (route) => ({bookId: route.params.bookId}),
         },
         {
           path: '/search',
           name: 'search',
-          component: () => import(/* webpackChunkName: "search" */ './views/Search.vue'),
+          component: () => import(/* webpackChunkName: "search" */ './views/SearchView.vue'),
+        },
+        {
+          path: '/import',
+          name: 'import',
+          redirect: {name: 'import-books'},
+          beforeEnter: adminGuard,
+          component: () => import(/* webpackChunkName: "import" */ './views/ImportHolder.vue'),
+          children: [
+            {
+              path: '/import/books',
+              name: 'import-books',
+              beforeEnter: adminGuard,
+              component: () => import(/* webpackChunkName: "import-books" */ './views/ImportBooks.vue'),
+            },
+            {
+              path: '/import/readlists',
+              name: 'import-readlists',
+              beforeEnter: adminGuard,
+              component: () => import(/* webpackChunkName: "import-readlists" */ './views/ImportReadLists.vue'),
+            },
+          ],
         },
       ],
     },
     {
       path: '/startup',
       name: 'startup',
-      component: () => import(/* webpackChunkName: "startup" */ './views/Startup.vue'),
+      component: () => import(/* webpackChunkName: "startup" */ './views/StartupView.vue'),
     },
     {
       path: '/login',
       name: 'login',
-      component: () => import(/* webpackChunkName: "login" */ './views/Login.vue'),
+      component: () => import(/* webpackChunkName: "login" */ './views/LoginView.vue'),
     },
     {
       path: '/book/:bookId/read',
       name: 'read-book',
       component: () => import(/* webpackChunkName: "read-book" */ './views/BookReader.vue'),
-      props: (route) => ({ bookId: route.params.bookId }),
+      props: (route) => ({bookId: route.params.bookId}),
     },
     {
       path: '*',
@@ -145,12 +257,12 @@ const router = new Router({
       component: () => import(/* webpackChunkName: "notfound" */ './views/PageNotFound.vue'),
     },
   ],
-  scrollBehavior (to, from, savedPosition) {
+  scrollBehavior(to, from, savedPosition) {
     if (savedPosition) {
       return savedPosition
     } else {
       if (to.name !== from.name) {
-        return { x: 0, y: 0 }
+        return {x: 0, y: 0}
       }
     }
   },
@@ -160,8 +272,25 @@ router.beforeEach((to, from, next) => {
   if (!['read-book', 'browse-book', 'browse-series'].includes(<string>to.name)) {
     document.title = 'Komga'
   }
+
+  if (window.opener !== null &&
+    window.name === 'oauth2Login' &&
+    to.query.server_redirect === 'Y'
+  ) {
+    if (!to.query.error) {
+      // authentication succeeded, we redirect the parent window so that it can login via cookie
+      window.opener.location.href = urls.origin
+    } else {
+      // authentication failed, we cascade the error message to the parent
+      window.opener.location.href = window.location
+    }
+    // we can close the popup
+    window.close()
+  }
+
   if (to.name !== 'startup' && to.name !== 'login' && !lStore.getters.authenticated) {
-    next({ name: 'startup', query: { redirect: to.fullPath } })
+    const query = Object.assign({}, to.query, {redirect: to.fullPath})
+    next({name: 'startup', query: query})
   } else next()
 })
 

@@ -14,12 +14,13 @@ import org.junit.jupiter.api.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
+import kotlin.io.path.extension
 
 class LocalArtworkProviderTest {
 
   private val contentDetector = spyk(ContentDetector(TikaConfiguration().tika())).also {
     every { it.detectMediaType(any<Path>()) } answers {
-      when (FilenameUtils.getExtension(firstArg<Path>().toString().toLowerCase())) {
+      when (firstArg<Path>().extension.lowercase()) {
         "jpg", "jpeg", "tbn" -> "image/jpeg"
         "png" -> "image/png"
         else -> "application/octet-stream"
@@ -47,10 +48,10 @@ class LocalArtworkProviderTest {
         Book(
           name = "Book",
           url = bookFile.toUri().toURL(),
-          fileLastModified = LocalDateTime.now()
-        )
+          fileLastModified = LocalDateTime.now(),
+        ),
       )
-      every { book.path() } returns bookFile
+      every { book.path } returns bookFile
 
       // when
       val thumbnails = localMediaAssetsProvider.getBookThumbnails(book)
@@ -81,10 +82,10 @@ class LocalArtworkProviderTest {
         Series(
           name = "Series",
           url = seriesFile.toUri().toURL(),
-          fileLastModified = LocalDateTime.now()
-        )
+          fileLastModified = LocalDateTime.now(),
+        ),
       )
-      every { series.path() } returns seriesFile
+      every { series.path } returns seriesFile
 
       // when
       val thumbnails = localMediaAssetsProvider.getSeriesThumbnails(series)

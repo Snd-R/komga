@@ -1,9 +1,16 @@
 import Vue from 'vue'
 import Vuex from 'vuex'
-import { BookDto } from '@/types/komga-books'
-import {SeriesDto} from "@/types/komga-series";
+import {BookDto} from '@/types/komga-books'
+import {SeriesDto} from '@/types/komga-series'
+import createPersistedState from 'vuex-persistedstate'
+import {persistedModule} from './plugins/persisted-state'
+import {LibraryDto} from '@/types/komga-libraries'
 
 Vue.use(Vuex)
+
+const persistedState = createPersistedState({
+  paths: ['persistedState'],
+})
 
 export default new Vuex.Store({
   state: {
@@ -12,14 +19,14 @@ export default new Vuex.Store({
     addToCollectionDialog: false,
     editCollection: {} as CollectionDto,
     editCollectionDialog: false,
-    deleteCollection: {} as CollectionDto,
+    deleteCollections: {} as CollectionDto | CollectionDto[],
     deleteCollectionDialog: false,
     // read lists
     addToReadListBooks: {} as BookDto | BookDto[],
     addToReadListDialog: false,
     editReadList: {} as ReadListDto,
     editReadListDialog: false,
-    deleteReadList: {} as ReadListDto,
+    deleteReadLists: {} as ReadListDto | ReadListDto[],
     deleteReadListDialog: false,
     // libraries
     editLibrary: {} as LibraryDto | undefined,
@@ -29,156 +36,214 @@ export default new Vuex.Store({
     // books
     updateBooks: {} as BookDto | BookDto[],
     updateBooksDialog: false,
+    deleteBooks: {} as BookDto | BookDto[],
+    deleteBookDialog: false,
+    // books bulk
+    updateBulkBooks: [] as BookDto[],
+    updateBulkBooksDialog: false,
+
     // series
     updateSeries: {} as SeriesDto | SeriesDto[],
     updateSeriesDialog: false,
+    deleteSeries: {} as SeriesDto | SeriesDto[],
+    deleteSeriesDialog: false,
+
+    booksToCheck: 0,
   },
   mutations: {
     // Collections
-    setAddToCollectionSeries (state, series) {
+    setAddToCollectionSeries(state, series) {
       state.addToCollectionSeries = series
     },
-    setAddToCollectionDialog (state, dialog) {
+    setAddToCollectionDialog(state, dialog) {
       state.addToCollectionDialog = dialog
     },
-    setEditCollection (state, collection) {
+    setEditCollection(state, collection) {
       state.editCollection = collection
     },
-    setEditCollectionDialog (state, dialog) {
+    setEditCollectionDialog(state, dialog) {
       state.editCollectionDialog = dialog
     },
-    setDeleteCollection (state, collection) {
-      state.deleteCollection = collection
+    setDeleteCollections(state, collections) {
+      state.deleteCollections = collections
     },
-    setDeleteCollectionDialog (state, dialog) {
+    setDeleteCollectionDialog(state, dialog) {
       state.deleteCollectionDialog = dialog
     },
     // Read Lists
-    setAddToReadListBooks (state, Book) {
-      state.addToReadListBooks = Book
+    setAddToReadListBooks(state, book) {
+      state.addToReadListBooks = book
     },
-    setAddToReadListDialog (state, dialog) {
+    setAddToReadListDialog(state, dialog) {
       state.addToReadListDialog = dialog
     },
-    setEditReadList (state, ReadList) {
-      state.editReadList = ReadList
+    setEditReadList(state, readList) {
+      state.editReadList = readList
     },
-    setEditReadListDialog (state, dialog) {
+    setEditReadListDialog(state, dialog) {
       state.editReadListDialog = dialog
     },
-    setDeleteReadList (state, ReadList) {
-      state.deleteReadList = ReadList
+    setDeleteReadLists(state, readLists) {
+      state.deleteReadLists = readLists
     },
-    setDeleteReadListDialog (state, dialog) {
+    setDeleteReadListDialog(state, dialog) {
       state.deleteReadListDialog = dialog
     },
     // Libraries
-    setEditLibrary (state, library) {
+    setEditLibrary(state, library) {
       state.editLibrary = library
     },
-    setEditLibraryDialog (state, dialog) {
+    setEditLibraryDialog(state, dialog) {
       state.editLibraryDialog = dialog
     },
-    setDeleteLibrary (state, library) {
+    setDeleteLibrary(state, library) {
       state.deleteLibrary = library
     },
-    setDeleteLibraryDialog (state, dialog) {
+    setDeleteLibraryDialog(state, dialog) {
       state.deleteLibraryDialog = dialog
     },
     // Books
-    setUpdateBooks (state, books) {
+    setUpdateBooks(state, books) {
       state.updateBooks = books
     },
-    setUpdateBooksDialog (state, dialog) {
+    setUpdateBooksDialog(state, dialog) {
       state.updateBooksDialog = dialog
     },
+    setDeleteBooks(state, books) {
+      state.deleteBooks = books
+    },
+    setDeleteBookDialog(state, dialog) {
+      state.deleteBookDialog = dialog
+    },
+    // Books bulk
+    setUpdateBulkBooks(state, books) {
+      state.updateBulkBooks = books
+    },
+    setUpdateBulkBooksDialog(state, dialog) {
+      state.updateBulkBooksDialog = dialog
+    },
     // Series
-    setUpdateSeries (state, series) {
+    setUpdateSeries(state, series) {
       state.updateSeries = series
     },
-    setUpdateSeriesDialog (state, dialog) {
+    setUpdateSeriesDialog(state, dialog) {
       state.updateSeriesDialog = dialog
+    },
+    setBooksToCheck(state, count) {
+      state.booksToCheck = count
+    },
+    setDeleteSeries(state, series) {
+      state.deleteSeries = series
+    },
+    setDeleteSeriesDialog(state, dialog) {
+      state.deleteSeriesDialog = dialog
     },
   },
   actions: {
     // collections
-    dialogAddSeriesToCollection ({ commit }, series) {
+    dialogAddSeriesToCollection({commit}, series) {
       commit('setAddToCollectionSeries', series)
       commit('setAddToCollectionDialog', true)
     },
-    dialogAddSeriesToCollectionDisplay ({ commit }, value) {
+    dialogAddSeriesToCollectionDisplay({commit}, value) {
       commit('setAddToCollectionDialog', value)
     },
-    dialogEditCollection ({ commit }, collection) {
+    dialogEditCollection({commit}, collection) {
       commit('setEditCollection', collection)
       commit('setEditCollectionDialog', true)
     },
-    dialogEditCollectionDisplay ({ commit }, value) {
+    dialogEditCollectionDisplay({commit}, value) {
       commit('setEditCollectionDialog', value)
     },
-    dialogDeleteCollection ({ commit }, collection) {
-      commit('setDeleteCollection', collection)
+    dialogDeleteCollection({commit}, collections) {
+      commit('setDeleteCollections', collections)
       commit('setDeleteCollectionDialog', true)
     },
-    dialogDeleteCollectionDisplay ({ commit }, value) {
+    dialogDeleteCollectionDisplay({commit}, value) {
       commit('setDeleteCollectionDialog', value)
     },
     // read lists
-    dialogAddBooksToReadList ({ commit }, books) {
+    dialogAddBooksToReadList({commit}, books) {
       commit('setAddToReadListBooks', books)
       commit('setAddToReadListDialog', true)
     },
-    dialogAddBooksToReadListDisplay ({ commit }, value) {
+    dialogAddBooksToReadListDisplay({commit}, value) {
       commit('setAddToReadListDialog', value)
     },
-    dialogEditReadList ({ commit }, readList) {
+    dialogEditReadList({commit}, readList) {
       commit('setEditReadList', readList)
       commit('setEditReadListDialog', true)
     },
-    dialogEditReadListDisplay ({ commit }, value) {
+    dialogEditReadListDisplay({commit}, value) {
       commit('setEditReadListDialog', value)
     },
-    dialogDeleteReadList ({ commit }, readList) {
-      commit('setDeleteReadList', readList)
+    dialogDeleteReadList({commit}, readLists) {
+      commit('setDeleteReadLists', readLists)
       commit('setDeleteReadListDialog', true)
     },
-    dialogDeleteReadListDisplay ({ commit }, value) {
+    dialogDeleteReadListDisplay({commit}, value) {
       commit('setDeleteReadListDialog', value)
     },
     // libraries
-    dialogAddLibrary ({ commit }) {
+    dialogAddLibrary({commit}) {
       commit('setEditLibrary', undefined)
       commit('setEditLibraryDialog', true)
     },
-    dialogEditLibrary ({ commit }, value) {
+    dialogEditLibrary({commit}, value) {
       commit('setEditLibrary', value)
       commit('setEditLibraryDialog', true)
     },
-    dialogEditLibraryDisplay ({ commit }, value) {
+    dialogEditLibraryDisplay({commit}, value) {
       commit('setEditLibraryDialog', value)
     },
-    dialogDeleteLibrary ({ commit }, library) {
+    dialogDeleteLibrary({commit}, library) {
       commit('setDeleteLibrary', library)
       commit('setDeleteLibraryDialog', true)
     },
-    dialogDeleteLibraryDisplay ({ commit }, value) {
+    dialogDeleteLibraryDisplay({commit}, value) {
       commit('setDeleteLibraryDialog', value)
     },
     // books
-    dialogUpdateBooks ({ commit }, books) {
+    dialogUpdateBooks({commit}, books) {
       commit('setUpdateBooks', books)
       commit('setUpdateBooksDialog', true)
     },
-    dialogUpdateBooksDisplay ({ commit }, value) {
+    dialogUpdateBooksDisplay({commit}, value) {
       commit('setUpdateBooksDialog', value)
     },
+    dialogDeleteBook({commit}, books) {
+      commit('setDeleteBooks', books)
+      commit('setDeleteBookDialog', true)
+    },
+    dialogDeleteBookDisplay({commit}, value) {
+      commit('setDeleteBookDialog', value)
+    },
+    // books bulk
+    dialogUpdateBulkBooks({commit}, books) {
+      commit('setUpdateBulkBooks', books)
+      commit('setUpdateBulkBooksDialog', true)
+    },
+    dialogUpdateBulkBooksDisplay({commit}, value) {
+      commit('setUpdateBulkBooksDialog', value)
+    },
     // series
-    dialogUpdateSeries ({ commit }, series) {
+    dialogUpdateSeries({commit}, series) {
       commit('setUpdateSeries', series)
       commit('setUpdateSeriesDialog', true)
     },
-    dialogUpdateSeriesDisplay ({ commit }, value) {
+    dialogUpdateSeriesDisplay({commit}, value) {
       commit('setUpdateSeriesDialog', value)
     },
+    dialogDeleteSeries({commit}, series) {
+      commit('setDeleteSeries', series)
+      commit('setDeleteSeriesDialog', true)
+    },
+    dialogDeleteSeriesDisplay({commit}, value) {
+      commit('setDeleteSeriesDialog', value)
+    },
   },
+  modules: {
+    persistedState: persistedModule,
+  },
+  plugins: [persistedState],
 })

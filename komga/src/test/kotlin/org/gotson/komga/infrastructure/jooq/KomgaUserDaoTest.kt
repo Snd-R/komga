@@ -1,6 +1,9 @@
 package org.gotson.komga.infrastructure.jooq
 
 import org.assertj.core.api.Assertions.assertThat
+import org.gotson.komga.domain.model.AgeRestriction
+import org.gotson.komga.domain.model.AllowExclude
+import org.gotson.komga.domain.model.ContentRestrictions
 import org.gotson.komga.domain.model.KomgaUser
 import org.gotson.komga.domain.model.makeLibrary
 import org.gotson.komga.domain.persistence.LibraryRepository
@@ -18,7 +21,7 @@ import java.time.LocalDateTime
 @SpringBootTest
 class KomgaUserDaoTest(
   @Autowired private val komgaUserDao: KomgaUserDao,
-  @Autowired private val libraryRepository: LibraryRepository
+  @Autowired private val libraryRepository: LibraryRepository,
 ) {
 
   private val library = makeLibrary()
@@ -47,7 +50,7 @@ class KomgaUserDaoTest(
       password = "password",
       roleAdmin = false,
       sharedLibrariesIds = setOf(library.id),
-      sharedAllLibraries = false
+      sharedAllLibraries = false,
     )
 
     komgaUserDao.insert(user)
@@ -59,9 +62,12 @@ class KomgaUserDaoTest(
       assertThat(lastModifiedDate).isCloseTo(now, offset)
       assertThat(email).isEqualTo("user@example.org")
       assertThat(password).isEqualTo("password")
-      assertThat(roleAdmin).isFalse()
+      assertThat(roleAdmin).isFalse
       assertThat(sharedLibrariesIds).containsExactly(library.id)
-      assertThat(sharedAllLibraries).isFalse()
+      assertThat(sharedAllLibraries).isFalse
+      assertThat(restrictions.ageRestriction).isNull()
+      assertThat(restrictions.labelsAllow).isEmpty()
+      assertThat(restrictions.labelsExclude).isEmpty()
     }
   }
 
@@ -72,18 +78,35 @@ class KomgaUserDaoTest(
       password = "password",
       roleAdmin = false,
       sharedLibrariesIds = setOf(library.id),
-      sharedAllLibraries = false
+      sharedAllLibraries = false,
+      restrictions = ContentRestrictions(
+        ageRestriction = AgeRestriction(10, AllowExclude.ALLOW_ONLY),
+        labelsAllow = setOf("allow"),
+        labelsExclude = setOf("exclude"),
+      )
     )
 
     komgaUserDao.insert(user)
     val created = komgaUserDao.findByIdOrNull(user.id)!!
+    with(created) {
+      assertThat(restrictions.ageRestriction).isNotNull
+      assertThat(restrictions.ageRestriction!!.age).isEqualTo(10)
+      assertThat(restrictions.ageRestriction!!.restriction).isEqualTo(AllowExclude.ALLOW_ONLY)
+      assertThat(restrictions.labelsAllow).containsExactly("allow")
+      assertThat(restrictions.labelsExclude).containsExactly("exclude")
+    }
 
     val modified = created.copy(
       email = "user2@example.org",
       password = "password2",
       roleAdmin = true,
       sharedLibrariesIds = emptySet(),
-      sharedAllLibraries = true
+      sharedAllLibraries = true,
+      restrictions = ContentRestrictions(
+        ageRestriction = AgeRestriction(16, AllowExclude.EXCLUDE),
+        labelsAllow = setOf("allow2"),
+        labelsExclude = setOf("exclude2"),
+      ),
     )
     val modifiedDate = LocalDateTime.now()
     komgaUserDao.update(modified)
@@ -97,9 +120,21 @@ class KomgaUserDaoTest(
         .isNotEqualTo(modified.createdDate)
       assertThat(email).isEqualTo("user2@example.org")
       assertThat(password).isEqualTo("password2")
-      assertThat(roleAdmin).isTrue()
+      assertThat(roleAdmin).isTrue
       assertThat(sharedLibrariesIds).isEmpty()
-      assertThat(sharedAllLibraries).isTrue()
+      assertThat(sharedAllLibraries).isTrue
+      assertThat(restrictions.ageRestriction).isNotNull
+      assertThat(restrictions.ageRestriction!!.age).isEqualTo(16)
+      assertThat(restrictions.ageRestriction!!.restriction).isEqualTo(AllowExclude.EXCLUDE)
+      assertThat(restrictions.labelsAllow).containsExactly("allow2")
+      assertThat(restrictions.labelsExclude).containsExactly("exclude2")
+    }
+
+    komgaUserDao.update(modifiedSaved.copy(restrictions = ContentRestrictions()))
+    with(komgaUserDao.findByIdOrNull(modified.id)!!) {
+      assertThat(restrictions.ageRestriction).isNull()
+      assertThat(restrictions.labelsAllow).isEmpty()
+      assertThat(restrictions.labelsExclude).isEmpty()
     }
   }
 
@@ -113,7 +148,7 @@ class KomgaUserDaoTest(
     assertThat(users).hasSize(2)
     assertThat(users.map { it.email }).containsExactlyInAnyOrder(
       "user1@example.org",
-      "user2@example.org"
+      "user2@example.org",
     )
   }
 
@@ -157,7 +192,7 @@ class KomgaUserDaoTest(
   @Test
   fun `given users when checking if exists by email then return true or false`() {
     komgaUserDao.insert(
-      KomgaUser("user1@example.org", "p", false)
+      KomgaUser("user1@example.org", "p", false),
     )
 
     val exists = komgaUserDao.existsByEmailIgnoreCase("USER1@EXAMPLE.ORG")
@@ -170,11 +205,11 @@ class KomgaUserDaoTest(
   @Test
   fun `given users when finding by email then return user`() {
     komgaUserDao.insert(
-      KomgaUser("user1@example.org", "p", false)
+      KomgaUser("user1@example.org", "p", false),
     )
 
-    val found = komgaUserDao.findByEmailIgnoreCase("USER1@EXAMPLE.ORG")
-    val notFound = komgaUserDao.findByEmailIgnoreCase("USER2@EXAMPLE.ORG")
+    val found = komgaUserDao.findByEmailIgnoreCaseOrNull("USER1@EXAMPLE.ORG")
+    val notFound = komgaUserDao.findByEmailIgnoreCaseOrNull("USER2@EXAMPLE.ORG")
 
     assertThat(found).isNotNull
     assertThat(found?.email).isEqualTo("user1@example.org")

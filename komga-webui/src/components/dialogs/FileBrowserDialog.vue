@@ -53,7 +53,7 @@
       <v-card-actions>
         <v-spacer/>
         <v-btn text @click="dialogCancel">{{ $t('dialog.file_browser.button_cancel') }}</v-btn>
-        <v-btn text class="primary--text"
+        <v-btn color="primary"
                @click="dialogConfirm"
                :disabled="!selectedPath"
         >{{ confirmText }}
@@ -65,6 +65,7 @@
 
 <script lang="ts">
 import Vue from 'vue'
+import {ERROR} from '@/types/events'
 
 export default Vue.extend({
   name: 'FileBrowserDialog',
@@ -76,11 +77,11 @@ export default Vue.extend({
     }
   },
   watch: {
-    value (val) {
+    value(val) {
       if (val) this.dialogInit()
       this.modalFileBrowser = val
     },
-    modalFileBrowser (val) {
+    modalFileBrowser(val) {
       !val && this.dialogCancel()
     },
   },
@@ -92,19 +93,19 @@ export default Vue.extend({
     },
     dialogTitle: {
       type: String,
-      default: function(): string {
+      default: function (): string {
         return this.$t('dialog.file_browser.dialog_title_default').toString()
       },
     },
     confirmText: {
       type: String,
-      default: function(): string {
+      default: function (): string {
         return this.$t('dialog.file_browser.button_confirm_default').toString()
       },
     },
   },
   methods: {
-    dialogInit () {
+    dialogInit() {
       try {
         this.getDirs(this.path)
         this.selectedPath = this.path
@@ -112,17 +113,21 @@ export default Vue.extend({
         this.getDirs()
       }
     },
-    dialogCancel () {
+    dialogCancel() {
       this.$emit('input', false)
     },
-    dialogConfirm () {
+    dialogConfirm() {
       this.$emit('input', false)
       this.$emit('update:path', this.selectedPath)
     },
-    async getDirs (path?: string) {
-      this.directoryListing = await this.$komgaFileSystem.getDirectoryListing(path)
+    async getDirs(path?: string) {
+      try {
+        this.directoryListing = await this.$komgaFileSystem.getDirectoryListing(path)
+      } catch (e) {
+        this.$eventHub.$emit(ERROR, {message: e.message} as ErrorEvent)
+      }
     },
-    select (path: string) {
+    select(path: string) {
       this.selectedPath = path
       this.getDirs(path)
     },

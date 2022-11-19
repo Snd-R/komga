@@ -1,14 +1,17 @@
 package org.gotson.komga.infrastructure.mediacontainer
 
 import mu.KotlinLogging
+import org.apache.commons.compress.archivers.ArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipFile
-import org.apache.commons.io.FilenameUtils
 import org.gotson.komga.domain.model.MediaContainerEntry
+import org.gotson.komga.domain.model.MediaType
+import org.gotson.komga.domain.model.MediaUnsupportedException
 import org.gotson.komga.infrastructure.image.ImageAnalyzer
 import org.jsoup.Jsoup
 import org.springframework.stereotype.Service
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.invariantSeparatorsPathString
 
 private val logger = KotlinLogging.logger {}
 
@@ -16,12 +19,12 @@ private val logger = KotlinLogging.logger {}
 class EpubExtractor(
   private val zipExtractor: ZipExtractor,
   private val contentDetector: ContentDetector,
-  private val imageAnalyzer: ImageAnalyzer
+  private val imageAnalyzer: ImageAnalyzer,
 ) : MediaContainerExtractor {
 
-  override fun mediaTypes(): List<String> = listOf("application/epub+zip")
+  override fun mediaTypes(): List<String> = listOf(MediaType.EPUB.value)
 
-  override fun getEntries(path: Path): List<MediaContainerEntry> {
+  override fun getEntries(path: Path, analyzeDimensions: Boolean): List<MediaContainerEntry> {
     ZipFile(path.toFile()).use { zip ->
       try {
         val opfFile = getPackagePath(zip)
@@ -39,26 +42,33 @@ class EpubExtractor(
         val images = pages
           .map { opfDir?.resolve(it)?.normalize() ?: Paths.get(it) }
           .flatMap { pagePath ->
-            val doc = zip.getInputStream(zip.getEntry(pagePath.separatorsToUnix())).use { Jsoup.parse(it, null, "") }
-            doc.getElementsByTag("img")
+            val doc = zip.getInputStream(zip.getEntry(pagePath.invariantSeparatorsPathString)).use { Jsoup.parse(it, null, "") }
+
+            val img = doc.getElementsByTag("img")
               .map { it.attr("src") } // get the src, which can be a relative path
-              .map { pagePath.parentOrEmpty().resolve(it).normalize() } // resolve it against the page folder
+
+            val svg = doc.select("svg > image[xlink:href]")
+              .map { it.attr("xlink:href") } // get the source, which can be a relative path
+
+            (img + svg).map { pagePath.parentOrEmpty().resolve(it).normalize() } // resolve it against the page folder
           }
 
         return images.map { image ->
-          val name = image.separatorsToUnix()
+          val name = image.invariantSeparatorsPathString
           val mediaType = manifest.values.first {
-            it.href == (opfDir?.relativize(image) ?: image).separatorsToUnix()
+            it.href == (opfDir?.relativize(image) ?: image).invariantSeparatorsPathString
           }.mediaType
-          val dimension = if (contentDetector.isImage(mediaType))
-            imageAnalyzer.getDimension(zip.getInputStream(zip.getEntry(name)))
+          val zipEntry = zip.getEntry(name)
+          val dimension = if (analyzeDimensions && contentDetector.isImage(mediaType))
+            zip.getInputStream(zipEntry).use { imageAnalyzer.getDimension(it) }
           else
             null
-          MediaContainerEntry(name = name, mediaType = mediaType, dimension = dimension)
+          val fileSize = if (zipEntry.size == ArchiveEntry.SIZE_UNKNOWN) null else zipEntry.size
+          MediaContainerEntry(name = name, mediaType = mediaType, dimension = dimension, fileSize = fileSize)
         }
       } catch (e: Exception) {
         logger.error(e) { "File is not a proper Epub, treating it as a zip file" }
-        return zipExtractor.getEntries(path)
+        return zipExtractor.getEntries(path, analyzeDimensions)
       }
     }
   }
@@ -70,7 +80,8 @@ class EpubExtractor(
   private fun getPackagePath(zip: ZipFile): String =
     zip.getEntry("META-INF/container.xml").let { entry ->
       val container = zip.getInputStream(entry).use { Jsoup.parse(it, null, "") }
-      container.getElementsByTag("rootfile").first().attr("full-path")
+      container.getElementsByTag("rootfile").first()?.attr("full-path")
+        ?: throw MediaUnsupportedException("META-INF/container.xml does not contain rootfile tag")
     }
 
   fun getPackageFile(path: Path): String? =
@@ -84,11 +95,9 @@ class EpubExtractor(
 
   fun Path.parentOrEmpty(): Path = parent ?: Paths.get("")
 
-  fun Path.separatorsToUnix(): String = FilenameUtils.separatorsToUnix(this.toString())
-
   private data class ManifestItem(
     val id: String,
     val href: String,
-    val mediaType: String
+    val mediaType: String,
   )
 }

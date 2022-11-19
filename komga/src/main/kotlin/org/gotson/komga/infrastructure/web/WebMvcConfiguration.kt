@@ -5,6 +5,7 @@ import org.springframework.http.CacheControl
 import org.springframework.stereotype.Component
 import org.springframework.web.bind.annotation.ControllerAdvice
 import org.springframework.web.bind.annotation.ExceptionHandler
+import org.springframework.web.method.support.HandlerMethodArgumentResolver
 import org.springframework.web.servlet.NoHandlerFoundException
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
@@ -29,11 +30,27 @@ class WebMvcConfiguration : WebMvcConfigurer {
     registry
       .addResourceHandler(
         "/index.html",
-        "/favicon.ico"
+        "/favicon.ico",
+        "/favicon-16x16.png",
+        "/favicon-32x32.png",
+        "/mstile-144x144.png",
+        "/apple-touch-icon.png",
+        "/apple-touch-icon-180x180.png",
+        "/android-chrome-192x192.png",
+        "/android-chrome-512x512.png",
+        "/manifest.json",
       )
       .addResourceLocations(
         "classpath:public/index.html",
-        "classpath:public/favicon.ico"
+        "classpath:public/favicon.ico",
+        "classpath:public/favicon-16x16.png",
+        "classpath:public/favicon-32x32.png",
+        "classpath:public/mstile-144x144.png",
+        "classpath:public/apple-touch-icon.png",
+        "classpath:public/apple-touch-icon-180x180.png",
+        "classpath:public/android-chrome-192x192.png",
+        "classpath:public/android-chrome-512x512.png",
+        "classpath:public/manifest.json",
       )
       .setCacheControl(CacheControl.noStore())
 
@@ -42,13 +59,13 @@ class WebMvcConfiguration : WebMvcConfigurer {
         "/css/**",
         "/fonts/**",
         "/img/**",
-        "/js/**"
+        "/js/**",
       )
       .addResourceLocations(
         "classpath:public/css/",
         "classpath:public/fonts/",
         "classpath:public/img/",
-        "classpath:public/js/"
+        "classpath:public/js/",
       )
       .setCacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic())
   }
@@ -58,10 +75,15 @@ class WebMvcConfiguration : WebMvcConfigurer {
       WebContentInterceptor().apply {
         addCacheMapping(
           cachePrivate,
-          "/api/**", "/opds/**"
+          "/api/**", "/opds/**",
         )
-      }
+      },
     )
+  }
+
+  override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
+    resolvers.add(AuthorsHandlerMethodArgumentResolver())
+    resolvers.add(DelimitedPairHandlerMethodArgumentResolver())
   }
 }
 

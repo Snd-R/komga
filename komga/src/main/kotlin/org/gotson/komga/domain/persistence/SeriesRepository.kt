@@ -5,21 +5,26 @@ import org.gotson.komga.domain.model.SeriesSearch
 import java.net.URL
 
 interface SeriesRepository {
-  fun findAll(): Collection<Series>
   fun findByIdOrNull(seriesId: String): Series?
-  fun findByLibraryId(libraryId: String): Collection<Series>
-  fun findByLibraryIdAndUrlNotIn(libraryId: String, urls: Collection<URL>): Collection<Series>
-  fun findByLibraryIdAndUrl(libraryId: String, url: URL): Series?
+  fun findNotDeletedByLibraryIdAndUrlOrNull(libraryId: String, url: URL): Series?
+
+  fun findAll(): Collection<Series>
+  fun findAllByLibraryId(libraryId: String): Collection<Series>
+  fun findAllNotDeletedByLibraryIdAndUrlNotIn(libraryId: String, urls: Collection<URL>): Collection<Series>
+  fun findAllByTitle(title: String): Collection<Series>
   fun findAll(search: SeriesSearch): Collection<Series>
 
   fun getLibraryId(seriesId: String): String?
+
+  fun findAllIdsByLibraryId(libraryId: String): Collection<String>
 
   fun insert(series: Series)
   fun update(series: Series)
 
   fun delete(seriesId: String)
+  fun delete(seriesIds: Collection<String>)
   fun deleteAll()
-  fun deleteAll(seriesIds: Collection<String>)
 
   fun count(): Long
+  fun countGroupedByLibraryName(): Map<String, Int>
 }

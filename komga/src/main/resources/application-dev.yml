@@ -1,33 +1,35 @@
 komga:
   remember-me:
     key: changeMe!
-    validity: 2592000 # 1 month
-  #  libraries-scan-cron: "*/5 * * * * ?" #every 5 seconds
+    validity: 30d
+#  libraries-scan-cron: "*/5 * * * * ?" #every 5 seconds
   libraries-scan-cron: "-" #disable
-  libraries-scan-startup: true
+  libraries-scan-startup: false
   database:
     file: ":memory:"
+  cors.allowed-origins:
+    - http://localhost:8081
+#  task-consumers: 5
+#  task-consumers-max: 20
+#  delete-empty-collections: true
+#  delete-empty-read-lists: true
+  oauth2-account-creation: false
+  config-dir: ${rootDir}/config-dir
   waifu2x-ncnn-vulkan-path: "/usr/bin/waifu2x-ncnn-vulkan"
-
-spring:
-  datasource:
-    url: jdbc:h2:mem:testdb
-  artemis:
-    embedded:
-      data-directory: ./artemis
 logging:
-  file:
-    name: komga-dev.log
   level:
     org.apache.activemq.audit.message: WARN
-#    org.jooq: DEBUG
-#    web: DEBUG
     org.gotson.komga: DEBUG
+#    org.jooq: DEBUG
+#    org.jooq.tools.LoggerListener: DEBUG
+#    web: DEBUG
+#    com.zaxxer.hikari: DEBUG
+#    org.springframework.jms: DEBUG
+#    org.springframework.boot.autoconfigure: DEBUG
+#    org.springframework.security.web.FilterChainProxy: DEBUG
   logback:
     rollingpolicy:
       max-history: 1
-#    org.springframework.jms: DEBUG
-#    org.springframework.security.web.FilterChainProxy: DEBUG
 
 management.metrics.export.influx:
   #  enabled: true

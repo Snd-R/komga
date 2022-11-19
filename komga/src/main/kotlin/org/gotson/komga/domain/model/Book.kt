@@ -1,33 +1,30 @@
 package org.gotson.komga.domain.model
 
 import com.github.f4b6a3.tsid.TsidCreator
-import com.jakewharton.byteunits.BinaryByteUnit
-import org.apache.commons.io.FilenameUtils
+import java.io.Serializable
 import java.net.URL
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.time.LocalDateTime
+import kotlin.io.path.toPath
 
 data class Book(
   val name: String,
   val url: URL,
   val fileLastModified: LocalDateTime,
   val fileSize: Long = 0,
+  val fileHash: String = "",
   val number: Int = 0,
 
-  val id: String = TsidCreator.getTsidString256(),
+  val id: String = TsidCreator.getTsid256().toString(),
   val seriesId: String = "",
   val libraryId: String = "",
 
+  val deletedDate: LocalDateTime? = null,
+
   override val createdDate: LocalDateTime = LocalDateTime.now(),
-  override val lastModifiedDate: LocalDateTime = LocalDateTime.now()
-) : Auditable() {
+  override val lastModifiedDate: LocalDateTime = createdDate,
+) : Auditable, Serializable {
 
-  fun fileName(): String = FilenameUtils.getName(url.toString())
-
-  fun fileExtension(): String = FilenameUtils.getExtension(url.toString())
-
-  fun path(): Path = Paths.get(this.url.toURI())
-
-  fun fileSizeHumanReadable(): String = BinaryByteUnit.format(fileSize)
+  @delegate:Transient
+  val path: Path by lazy { this.url.toURI().toPath() }
 }

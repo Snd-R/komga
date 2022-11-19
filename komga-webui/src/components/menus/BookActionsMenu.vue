@@ -22,6 +22,9 @@
         <v-list-item @click="markUnread" v-if="!isUnread">
           <v-list-item-title>{{ $t('menu.mark_unread') }}</v-list-item-title>
         </v-list-item>
+        <v-list-item @click="promptDeleteBook" class="list-warning" v-if="isAdmin">
+          <v-list-item-title>{{ $t('menu.delete') }}</v-list-item-title>
+        </v-list-item>
       </v-list>
     </v-menu>
   </div>
@@ -29,7 +32,6 @@
 <script lang="ts">
 import {getReadProgress} from '@/functions/book-progress'
 import {ReadStatus} from '@/types/enum-books'
-import {BOOK_CHANGED, bookToEventBookChanged} from '@/types/events'
 import Vue from 'vue'
 import {BookDto, ReadProgressUpdateDto} from '@/types/komga-books'
 
@@ -79,11 +81,12 @@ export default Vue.extend({
     async markRead () {
       const readProgress = { completed: true } as ReadProgressUpdateDto
       await this.$komgaBooks.updateReadProgress(this.book.id, readProgress)
-      this.$eventHub.$emit(BOOK_CHANGED, bookToEventBookChanged(this.book))
     },
     async markUnread () {
       await this.$komgaBooks.deleteReadProgress(this.book.id)
-      this.$eventHub.$emit(BOOK_CHANGED, bookToEventBookChanged(this.book))
+    },
+    promptDeleteBook () {
+      this.$store.dispatch('dialogDeleteBook', this.book)
     },
   },
 })

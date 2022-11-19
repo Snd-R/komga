@@ -1,46 +1,51 @@
 package org.gotson.komga.infrastructure.datasource
 
+import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.gotson.komga.infrastructure.configuration.KomgaProperties
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties
-import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.jdbc.DataSourceBuilder
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
-import org.springframework.data.jdbc.repository.config.AbstractJdbcConfiguration
-import org.springframework.data.relational.core.dialect.Dialect
-import org.springframework.data.relational.core.dialect.H2Dialect
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcOperations
 import javax.sql.DataSource
 
 @Configuration
 class DataSourcesConfiguration(
-  private val komgaProperties: KomgaProperties
-) : AbstractJdbcConfiguration() {
+  private val komgaProperties: KomgaProperties,
+) {
 
   @Bean("sqliteDataSource")
   @Primary
-  fun sqliteDataSource(): DataSource =
-    (
-      DataSourceBuilder.create()
-        .apply {
-          driverClassName("org.sqlite.JDBC")
-          url("jdbc:sqlite:${komgaProperties.database.file}?foreign_keys=on;")
-        }.type(HikariDataSource::class.java)
-        .build() as HikariDataSource
-      )
-      .apply { maximumPoolSize = 1 }
+  fun sqliteDataSource(): DataSource {
 
-  @Bean
-  @Primary
-  @ConfigurationProperties(prefix = "spring.datasource")
-  fun h2DataSourceProperties() = DataSourceProperties()
+    val extraPragmas = komgaProperties.database.pragmas.let {
+      if (it.isEmpty()) ""
+      else "?" + it.map { (key, value) -> "$key=$value" }.joinToString(separator = "&")
+    }
 
-  @Bean("h2DataSource")
-  fun h2DataSource(): DataSource =
-    h2DataSourceProperties().initializeDataSourceBuilder().type(HikariDataSource::class.java).build()
+    val sqliteUdfDataSource = DataSourceBuilder.create()
+      .driverClassName("org.sqlite.JDBC")
+      .url("jdbc:sqlite:${komgaProperties.database.file}$extraPragmas")
+      .type(SqliteUdfDataSource::class.java)
+      .build()
 
-  @Bean
-  override fun jdbcDialect(operations: NamedParameterJdbcOperations): Dialect = H2Dialect.INSTANCE
+    sqliteUdfDataSource.setEnforceForeignKeys(true)
+    with(komgaProperties.database) {
+      journalMode?.let { sqliteUdfDataSource.setJournalMode(it.name) }
+      busyTimeout?.let { sqliteUdfDataSource.config.busyTimeout = it.toMillis().toInt() }
+    }
+
+    val poolSize =
+      if (komgaProperties.database.file.contains(":memory:")) 1
+      else if (komgaProperties.database.poolSize != null) komgaProperties.database.poolSize!!
+      else Runtime.getRuntime().availableProcessors().coerceAtMost(komgaProperties.database.maxPoolSize)
+
+    return HikariDataSource(
+      HikariConfig().apply {
+        dataSource = sqliteUdfDataSource
+        poolName = "SqliteUdfPool"
+        maximumPoolSize = poolSize
+      },
+    )
+  }
 }

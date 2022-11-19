@@ -1,5 +1,4 @@
 const htmlInject = require('html-webpack-inject-attributes-plugin')
-const momentLocalesPlugin = require('moment-locales-webpack-plugin')
 const _ = require('lodash')
 
 // vue.config.js
@@ -18,6 +17,12 @@ module.exports = {
             }
             return false
           },
+          'th:content': function (tag) {
+            if (_.has(tag, 'attributes.content')) {
+              return `@{${tag.attributes.content}}`
+            }
+            return false
+          },
           'th:src': function (tag) {
             if (_.has(tag, 'attributes.src')) {
               return `@{${tag.attributes.src}}`
@@ -31,9 +36,6 @@ module.exports = {
     config.plugin('html-inject')
       .after('html')
       .use(htmlInject)
-
-    config.plugin('momentLocalesPlugin')
-      .use(momentLocalesPlugin)
   },
 
   pluginOptions: {

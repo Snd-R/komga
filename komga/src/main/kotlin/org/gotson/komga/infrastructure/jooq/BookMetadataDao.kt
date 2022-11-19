@@ -2,23 +2,29 @@ package org.gotson.komga.infrastructure.jooq
 
 import org.gotson.komga.domain.model.Author
 import org.gotson.komga.domain.model.BookMetadata
+import org.gotson.komga.domain.model.WebLink
 import org.gotson.komga.domain.persistence.BookMetadataRepository
 import org.gotson.komga.jooq.Tables
 import org.gotson.komga.jooq.tables.records.BookMetadataAuthorRecord
 import org.gotson.komga.jooq.tables.records.BookMetadataRecord
 import org.jooq.DSLContext
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
+import java.net.URI
 import java.time.LocalDateTime
 import java.time.ZoneId
 
 @Component
 class BookMetadataDao(
-  private val dsl: DSLContext
+  private val dsl: DSLContext,
+  @Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
 ) : BookMetadataRepository {
 
   private val d = Tables.BOOK_METADATA
   private val a = Tables.BOOK_METADATA_AUTHOR
   private val bt = Tables.BOOK_METADATA_TAG
+  private val bl = Tables.BOOK_METADATA_LINK
 
   private val groupFields = arrayOf(*d.fields(), *a.fields())
 
@@ -28,7 +34,7 @@ class BookMetadataDao(
   override fun findByIdOrNull(bookId: String): BookMetadata? =
     find(dsl, listOf(bookId)).firstOrNull()
 
-  override fun findByIds(bookIds: Collection<String>): Collection<BookMetadata> =
+  override fun findAllByIds(bookIds: Collection<String>): Collection<BookMetadata> =
     find(dsl, bookIds)
 
   private fun find(dsl: DSLContext, bookIds: Collection<String>) =
@@ -38,28 +44,35 @@ class BookMetadataDao(
       .where(d.BOOK_ID.`in`(bookIds))
       .groupBy(*groupFields)
       .fetchGroups(
-        { it.into(d) }, { it.into(a) }
+        { it.into(d) }, { it.into(a) },
       ).map { (dr, ar) ->
-        dr.toDomain(ar.filterNot { it.name == null }.map { it.toDomain() }, findTags(dr.bookId))
+        dr.toDomain(ar.filterNot { it.name == null }.map { it.toDomain() }, findTags(dr.bookId), findLinks(dr.bookId))
       }
 
   private fun findTags(bookId: String) =
     dsl.select(bt.TAG)
       .from(bt)
       .where(bt.BOOK_ID.eq(bookId))
-      .fetchInto(bt)
-      .mapNotNull { it.tag }
-      .toSet()
+      .fetchSet(bt.TAG)
 
+  private fun findLinks(bookId: String) =
+    dsl.select(bl.LABEL, bl.URL)
+      .from(bl)
+      .where(bl.BOOK_ID.eq(bookId))
+      .fetchInto(bl)
+      .map { WebLink(it.label, URI(it.url)) }
+
+  @Transactional
   override fun insert(metadata: BookMetadata) {
-    insertMany(listOf(metadata))
+    insert(listOf(metadata))
   }
 
-  override fun insertMany(metadatas: Collection<BookMetadata>) {
+  @Transactional
+  override fun insert(metadatas: Collection<BookMetadata>) {
     if (metadatas.isNotEmpty()) {
-      dsl.transaction { config ->
-        config.dsl().batch(
-          config.dsl().insertInto(
+      metadatas.chunked(batchSize).forEach { chunk ->
+        dsl.batch(
+          dsl.insertInto(
             d,
             d.BOOK_ID,
             d.TITLE,
@@ -73,10 +86,13 @@ class BookMetadataDao(
             d.RELEASE_DATE,
             d.RELEASE_DATE_LOCK,
             d.AUTHORS_LOCK,
-            d.TAGS_LOCK
-          ).values(null as String?, null, null, null, null, null, null, null, null, null, null, null, null)
+            d.TAGS_LOCK,
+            d.ISBN,
+            d.ISBN_LOCK,
+            d.LINKS_LOCK,
+          ).values(null as String?, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null),
         ).also { step ->
-          metadatas.forEach {
+          chunk.forEach {
             step.bind(
               it.bookId,
               it.title,
@@ -90,113 +106,139 @@ class BookMetadataDao(
               it.releaseDate,
               it.releaseDateLock,
               it.authorsLock,
-              it.tagsLock
+              it.tagsLock,
+              it.isbn,
+              it.isbnLock,
+              it.linksLock,
             )
           }
         }.execute()
-
-        insertAuthors(config.dsl(), metadatas)
-        insertTags(config.dsl(), metadatas)
       }
+
+      insertAuthors(metadatas)
+      insertTags(metadatas)
+      insertLinks(metadatas)
     }
   }
 
+  @Transactional
   override fun update(metadata: BookMetadata) {
-    dsl.transaction { config ->
-      updateMetadata(config.dsl(), metadata)
-    }
+    updateMetadata(metadata)
   }
 
-  override fun updateMany(metadatas: Collection<BookMetadata>) {
-    dsl.transaction { config ->
-      metadatas.forEach { updateMetadata(config.dsl(), it) }
-    }
+  @Transactional
+  override fun update(metadatas: Collection<BookMetadata>) {
+    metadatas.forEach { updateMetadata(it) }
   }
 
-  private fun updateMetadata(dsl: DSLContext, metadata: BookMetadata) {
-    dsl.transaction { config ->
-      with(config.dsl()) {
-        update(d)
-          .set(d.TITLE, metadata.title)
-          .set(d.TITLE_LOCK, metadata.titleLock)
-          .set(d.SUMMARY, metadata.summary)
-          .set(d.SUMMARY_LOCK, metadata.summaryLock)
-          .set(d.NUMBER, metadata.number)
-          .set(d.NUMBER_LOCK, metadata.numberLock)
-          .set(d.NUMBER_SORT, metadata.numberSort)
-          .set(d.NUMBER_SORT_LOCK, metadata.numberSortLock)
-          .set(d.RELEASE_DATE, metadata.releaseDate)
-          .set(d.RELEASE_DATE_LOCK, metadata.releaseDateLock)
-          .set(d.AUTHORS_LOCK, metadata.authorsLock)
-          .set(d.TAGS_LOCK, metadata.tagsLock)
-          .set(d.LAST_MODIFIED_DATE, LocalDateTime.now(ZoneId.of("Z")))
-          .where(d.BOOK_ID.eq(metadata.bookId))
-          .execute()
+  private fun updateMetadata(metadata: BookMetadata) {
+    dsl.update(d)
+      .set(d.TITLE, metadata.title)
+      .set(d.TITLE_LOCK, metadata.titleLock)
+      .set(d.SUMMARY, metadata.summary)
+      .set(d.SUMMARY_LOCK, metadata.summaryLock)
+      .set(d.NUMBER, metadata.number)
+      .set(d.NUMBER_LOCK, metadata.numberLock)
+      .set(d.NUMBER_SORT, metadata.numberSort)
+      .set(d.NUMBER_SORT_LOCK, metadata.numberSortLock)
+      .set(d.RELEASE_DATE, metadata.releaseDate)
+      .set(d.RELEASE_DATE_LOCK, metadata.releaseDateLock)
+      .set(d.AUTHORS_LOCK, metadata.authorsLock)
+      .set(d.TAGS_LOCK, metadata.tagsLock)
+      .set(d.ISBN, metadata.isbn)
+      .set(d.ISBN_LOCK, metadata.isbnLock)
+      .set(d.LINKS_LOCK, metadata.linksLock)
+      .set(d.LAST_MODIFIED_DATE, LocalDateTime.now(ZoneId.of("Z")))
+      .where(d.BOOK_ID.eq(metadata.bookId))
+      .execute()
 
-        deleteFrom(a)
-          .where(a.BOOK_ID.eq(metadata.bookId))
-          .execute()
-        deleteFrom(bt)
-          .where(bt.BOOK_ID.eq(metadata.bookId))
-          .execute()
+    dsl.deleteFrom(a)
+      .where(a.BOOK_ID.eq(metadata.bookId))
+      .execute()
+    dsl.deleteFrom(bt)
+      .where(bt.BOOK_ID.eq(metadata.bookId))
+      .execute()
+    dsl.deleteFrom(bl)
+      .where(bl.BOOK_ID.eq(metadata.bookId))
+      .execute()
 
-        insertAuthors(this, listOf(metadata))
-        insertTags(config.dsl(), listOf(metadata))
-      }
-    }
+    insertAuthors(listOf(metadata))
+    insertTags(listOf(metadata))
+    insertLinks(listOf(metadata))
   }
 
-  private fun insertAuthors(dsl: DSLContext, metadatas: Collection<BookMetadata>) {
+  private fun insertAuthors(metadatas: Collection<BookMetadata>) {
     if (metadatas.any { it.authors.isNotEmpty() }) {
-      dsl.batch(
-        dsl.insertInto(a, a.BOOK_ID, a.NAME, a.ROLE)
-          .values(null as String?, null, null)
-      ).also { step ->
-        metadatas.forEach { metadata ->
-          metadata.authors.forEach {
-            step.bind(metadata.bookId, it.name, it.role)
+      metadatas.chunked(batchSize).forEach { chunk ->
+        dsl.batch(
+          dsl.insertInto(a, a.BOOK_ID, a.NAME, a.ROLE)
+            .values(null as String?, null, null),
+        ).also { step ->
+          chunk.forEach { metadata ->
+            metadata.authors.forEach {
+              step.bind(metadata.bookId, it.name, it.role)
+            }
           }
-        }
-      }.execute()
+        }.execute()
+      }
     }
   }
 
-  private fun insertTags(dsl: DSLContext, metadatas: Collection<BookMetadata>) {
+  private fun insertTags(metadatas: Collection<BookMetadata>) {
     if (metadatas.any { it.tags.isNotEmpty() }) {
-      dsl.batch(
-        dsl.insertInto(bt, bt.BOOK_ID, bt.TAG)
-          .values(null as String?, null)
-      ).also { step ->
-        metadatas.forEach { metadata ->
-          metadata.tags.forEach {
-            step.bind(metadata.bookId, it)
+      metadatas.chunked(batchSize).forEach { chunk ->
+        dsl.batch(
+          dsl.insertInto(bt, bt.BOOK_ID, bt.TAG)
+            .values(null as String?, null),
+        ).also { step ->
+          chunk.forEach { metadata ->
+            metadata.tags.forEach {
+              step.bind(metadata.bookId, it)
+            }
           }
-        }
-      }.execute()
+        }.execute()
+      }
     }
   }
 
+  private fun insertLinks(metadatas: Collection<BookMetadata>) {
+    if (metadatas.any { it.links.isNotEmpty() }) {
+      metadatas.chunked(batchSize).forEach { chunk ->
+        dsl.batch(
+          dsl.insertInto(bl, bl.BOOK_ID, bl.LABEL, bl.URL)
+            .values(null as String?, null, null),
+        ).also { step ->
+          chunk.forEach { metadata ->
+            metadata.links.forEach {
+              step.bind(metadata.bookId, it.label, it.url.toString())
+            }
+          }
+        }.execute()
+      }
+    }
+  }
+
+  @Transactional
   override fun delete(bookId: String) {
-    dsl.transaction { config ->
-      with(config.dsl()) {
-        deleteFrom(a).where(a.BOOK_ID.eq(bookId)).execute()
-        deleteFrom(bt).where(bt.BOOK_ID.eq(bookId)).execute()
-        deleteFrom(d).where(d.BOOK_ID.eq(bookId)).execute()
-      }
-    }
+    dsl.deleteFrom(a).where(a.BOOK_ID.eq(bookId)).execute()
+    dsl.deleteFrom(bt).where(bt.BOOK_ID.eq(bookId)).execute()
+    dsl.deleteFrom(bl).where(bl.BOOK_ID.eq(bookId)).execute()
+    dsl.deleteFrom(d).where(d.BOOK_ID.eq(bookId)).execute()
   }
 
-  override fun deleteByBookIds(bookIds: Collection<String>) {
-    dsl.transaction { config ->
-      with(config.dsl()) {
-        deleteFrom(a).where(a.BOOK_ID.`in`(bookIds)).execute()
-        deleteFrom(bt).where(bt.BOOK_ID.`in`(bookIds)).execute()
-        deleteFrom(d).where(d.BOOK_ID.`in`(bookIds)).execute()
-      }
-    }
+  @Transactional
+  override fun delete(bookIds: Collection<String>) {
+    dsl.insertTempStrings(batchSize, bookIds)
+
+    dsl.deleteFrom(a).where(a.BOOK_ID.`in`(dsl.selectTempStrings())).execute()
+    dsl.deleteFrom(bt).where(bt.BOOK_ID.`in`(dsl.selectTempStrings())).execute()
+    dsl.deleteFrom(bl).where(bl.BOOK_ID.`in`(dsl.selectTempStrings())).execute()
+    dsl.deleteFrom(d).where(d.BOOK_ID.`in`(dsl.selectTempStrings())).execute()
   }
 
-  private fun BookMetadataRecord.toDomain(authors: List<Author>, tags: Set<String>) =
+  override fun count(): Long = dsl.fetchCount(d).toLong()
+
+  private fun BookMetadataRecord.toDomain(authors: List<Author>, tags: Set<String>, links: List<WebLink>) =
     BookMetadata(
       title = title,
       summary = summary,
@@ -205,6 +247,8 @@ class BookMetadataDao(
       releaseDate = releaseDate,
       authors = authors,
       tags = tags,
+      isbn = isbn,
+      links = links,
 
       bookId = bookId,
 
@@ -217,12 +261,14 @@ class BookMetadataDao(
       numberSortLock = numberSortLock,
       releaseDateLock = releaseDateLock,
       authorsLock = authorsLock,
-      tagsLock = tagsLock
+      tagsLock = tagsLock,
+      isbnLock = isbnLock,
+      linksLock = linksLock,
     )
 
   private fun BookMetadataAuthorRecord.toDomain() =
     Author(
       name = name,
-      role = role
+      role = role,
     )
 }

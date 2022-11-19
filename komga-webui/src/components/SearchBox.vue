@@ -1,103 +1,106 @@
 <template>
-  <div id="searchbox">
-    <v-text-field v-model="search"
-                  solo
-                  hide-details
-                  clearable
-                  prepend-inner-icon="mdi-magnify"
-                  :label="$t('search.search')"
-                  :loading="loading"
-                  @click:clear="clear"
-                  @keydown.esc="clear"
-                  @keydown.enter="searchDetails"
-    />
-    <v-menu nudge-bottom="57"
-            nudge-right="52"
-            attach="#searchbox"
-            v-model="showResults"
-            :max-height="$vuetify.breakpoint.height * .9"
-            :min-width="$vuetify.breakpoint.mdAndUp ? $vuetify.breakpoint.width * .4 : $vuetify.breakpoint.width * .8"
+  <div>
+    <v-autocomplete
+      v-model="selectedItem"
+      :placeholder="$t('search.search')"
+      :no-data-text="$t('searchbox.no_results')"
+      :loading="loading"
+      :items="results"
+      :hide-no-data="!showResults"
+      clearable
+      solo
+      hide-details
+      no-filter
+      return-object
+      prepend-inner-icon="mdi-magnify"
+      append-icon=""
+      item-text="id"
+      auto-select-first
+      :search-input.sync="search"
+      :menu-props="{maxHeight: $vuetify.breakpoint.height * .9, minWidth: $vuetify.breakpoint.mdAndUp ? $vuetify.breakpoint.width * .4 : $vuetify.breakpoint.width * .8}"
+      @keydown.esc="clear"
+      @blur="clear"
+      ref="searchbox"
     >
-      <v-list>
-        <v-list-item
-          v-if="series.length === 0 && books.length === 0 && collections.length === 0 && readLists.length === 0">
-          {{ $t('searchbox.no_results') }}
-        </v-list-item>
+      <template v-slot:selection>
+      </template>
 
-        <template v-if="series.length !== 0">
-          <v-subheader class="text-uppercase">{{ $t('common.series') }}</v-subheader>
-          <v-list-item v-for="item in series"
-                       :key="item.id"
-                       link
-                       :to="{name: 'browse-series', params: {seriesId: item.id}}"
-          >
-            <v-img :src="seriesThumbnailUrl(item.id)"
-                   height="50"
-                   max-width="35"
-                   class="my-1 mx-3"
-            />
-            <v-list-item-content>
-              <v-list-item-title v-text="item.metadata.title"/>
-            </v-list-item-content>
-          </v-list-item>
+      <template v-slot:item="data">
+        <template v-if="typeof data.item !== 'object'">
+          <v-list-item-content>{{ data.item }}</v-list-item-content>
         </template>
 
-        <template v-if="books.length !== 0">
-          <v-subheader class="text-uppercase">{{ $t('common.books') }}</v-subheader>
-          <v-list-item v-for="item in books"
-                       :key="item.id"
-                       link
-                       :to="{name: 'browse-book', params: {bookId: item.id}}"
-          >
-            <v-img :src="bookThumbnailUrl(item.id)"
-                   height="50"
-                   max-width="35"
-                   class="my-1 mx-3"
-            />
-            <v-list-item-content>
-              <v-list-item-title v-text="item.metadata.title"/>
-            </v-list-item-content>
-          </v-list-item>
+        <template v-if="data.item.type === 'search'">
+          <v-list-item-content>{{ $t('searchbox.search_all') }}</v-list-item-content>
         </template>
 
-        <template v-if="collections.length !== 0">
-          <v-subheader class="text-uppercase">{{ $t('common.collections') }}</v-subheader>
-          <v-list-item v-for="item in collections"
-                       :key="item.id"
-                       link
-                       :to="{name: 'browse-collection', params: {collectionId: item.id}}"
+        <template v-if="data.item.type === 'series'">
+          <v-img :src="seriesThumbnailUrl(data.item.id)"
+                 height="50"
+                 max-width="35"
+                 class="my-1 mx-3"
+                 contain
           >
-            <v-img :src="collectionThumbnailUrl(item.id)"
-                   height="50"
-                   max-width="35"
-                   class="my-1 mx-3"
-            />
-            <v-list-item-content>
-              <v-list-item-title v-text="item.name"/>
-            </v-list-item-content>
-          </v-list-item>
+                <span v-if="data.item.booksUnreadCount !== 0"
+                      class="white--text pa-0 px-1 text-caption"
+                      :style="{background: 'orange', position: 'absolute', right: 0}"
+                >
+                  {{ data.item.booksUnreadCount }}
+                </span>
+          </v-img>
+          <v-list-item-content>
+            <v-list-item-title>{{ data.item.metadata.title }}</v-list-item-title>
+            <v-list-item-subtitle>{{
+                $t('searchbox.in_library', {library: getLibraryName(data.item)})
+              }}
+            </v-list-item-subtitle>
+          </v-list-item-content>
         </template>
 
-        <template v-if="readLists.length !== 0">
-          <v-subheader class="text-uppercase">{{ $t('common.readlists') }}</v-subheader>
-          <v-list-item v-for="item in readLists"
-                       :key="item.id"
-                       link
-                       :to="{name: 'browse-readlist', params: {readListId: item.id}}"
+        <template v-if="data.item.type === 'book'">
+          <v-img :src="bookThumbnailUrl(data.item.id)"
+                 height="50"
+                 max-width="35"
+                 class="my-1 mx-3"
+                 contain
           >
-            <v-img :src="readListThumbnailUrl(item.id)"
-                   height="50"
-                   max-width="35"
-                   class="my-1 mx-3"
-            />
-            <v-list-item-content>
-              <v-list-item-title v-text="item.name"/>
-            </v-list-item-content>
-          </v-list-item>
+            <div class="unread" v-if="isUnread(data.item)"/>
+          </v-img>
+
+          <v-list-item-content>
+            <v-list-item-title>{{ data.item.metadata.title }}</v-list-item-title>
+            <v-list-item-subtitle>{{ data.item.seriesTitle }} - {{ data.item.metadata.number }}</v-list-item-subtitle>
+            <v-list-item-subtitle>{{
+                $t('searchbox.in_library', {library: getLibraryName(data.item)})
+              }}
+            </v-list-item-subtitle>
+          </v-list-item-content>
         </template>
 
-      </v-list>
-    </v-menu>
+        <template v-if="data.item.type === 'collection'">
+          <v-img :src="collectionThumbnailUrl(data.item.id)"
+                 height="50"
+                 max-width="35"
+                 class="my-1 mx-3"
+          />
+          <v-list-item-content>
+            <v-list-item-title>{{ data.item.name }}</v-list-item-title>
+          </v-list-item-content>
+        </template>
+
+        <template v-if="data.item.type === 'readlist'">
+          <v-img :src="readListThumbnailUrl(data.item.id)"
+                 height="50"
+                 max-width="35"
+                 class="my-1 mx-3"
+          />
+          <v-list-item-content>
+            <v-list-item-title>{{ data.item.name }}</v-list-item-title>
+          </v-list-item-content>
+        </template>
+
+      </template>
+    </v-autocomplete>
   </div>
 </template>
 
@@ -106,12 +109,15 @@ import {bookThumbnailUrl, collectionThumbnailUrl, readListThumbnailUrl, seriesTh
 import {debounce} from 'lodash'
 import Vue from 'vue'
 import {BookDto} from '@/types/komga-books'
-import {SeriesDto} from "@/types/komga-series";
+import {SeriesDto} from '@/types/komga-series'
+import {getReadProgress} from '@/functions/book-progress'
+import {ReadStatus} from '@/types/enum-books'
 
 export default Vue.extend({
   name: 'SearchBox',
   data: function () {
     return {
+      selectedItem: null as unknown as any,
       search: null,
       showResults: false,
       loading: false,
@@ -123,6 +129,25 @@ export default Vue.extend({
     }
   },
   watch: {
+    selectedItem(val, old) {
+      if (val && val.hasOwnProperty('type')) {
+        this.$nextTick(() => {
+          this.selectedItem = undefined
+        })
+
+        if (val.type === 'series') this.$router.push({name: 'browse-series', params: {seriesId: val.id}})
+        else if (val.type === 'book') this.$router.push({name: 'browse-book', params: {bookId: val.id}})
+        else if (val.type === 'collection') this.$router.push({
+          name: 'browse-collection',
+          params: {collectionId: val.id},
+        })
+        else if (val.type === 'readlist') this.$router.push({name: 'browse-readlist', params: {readListId: val.id}})
+        else if (val.type === 'search') this.searchDetails()
+
+        //@ts-ignore
+        this.$refs.searchbox.blur()
+      }
+    },
     search(val) {
       this.searchItems(val)
     },
@@ -130,7 +155,35 @@ export default Vue.extend({
       !val && this.clear()
     },
   },
+  computed: {
+    results(): object[] {
+      const results = []
+      if (this.search) {
+        results.push({type: 'search'})
+        if (this.series.length > 0) {
+          results.push({header: this.$t('common.series').toString().toUpperCase()})
+          results.push(...this.series.map(o => ({...o, type: 'series'})))
+        }
+        if (this.books.length > 0) {
+          results.push({header: this.$t('common.books').toString().toUpperCase()})
+          results.push(...this.books.map(o => ({...o, type: 'book'})))
+        }
+        if (this.collections.length > 0) {
+          results.push({header: this.$t('common.collections').toString().toUpperCase()})
+          results.push(...this.collections.map(o => ({...o, type: 'collection'})))
+        }
+        if (this.readLists.length > 0) {
+          results.push({header: this.$t('common.readlists').toString().toUpperCase()})
+          results.push(...this.readLists.map(o => ({...o, type: 'readlist'})))
+        }
+      }
+      return results
+    },
+  },
   methods: {
+    getLibraryName(item: BookDto | SeriesDto): string {
+      return this.$store.getters.getLibraryById(item.libraryId).name
+    },
     searchItems: debounce(async function (this: any, query: string) {
       if (query) {
         this.loading = true
@@ -158,6 +211,9 @@ export default Vue.extend({
       this.$router.push({name: 'search', query: {q: s}}).catch(e => {
       })
     },
+    isUnread(book: BookDto): boolean {
+      return getReadProgress(book) === ReadStatus.UNREAD
+    },
     seriesThumbnailUrl(seriesId: string): string {
       return seriesThumbnailUrl(seriesId)
     },
@@ -175,5 +231,14 @@ export default Vue.extend({
 </script>
 
 <style scoped>
-
+.unread {
+  border-left: 15px solid transparent;
+  border-right: 15px solid orange;
+  border-bottom: 15px solid transparent;
+  height: 0;
+  width: 0;
+  position: absolute;
+  right: 0;
+  z-index: 2;
+}
 </style>

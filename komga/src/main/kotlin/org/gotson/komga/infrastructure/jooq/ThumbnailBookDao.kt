@@ -5,29 +5,38 @@ import org.gotson.komga.domain.persistence.ThumbnailBookRepository
 import org.gotson.komga.jooq.Tables
 import org.gotson.komga.jooq.tables.records.ThumbnailBookRecord
 import org.jooq.DSLContext
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import org.springframework.transaction.annotation.Transactional
 import java.net.URL
 
 @Component
 class ThumbnailBookDao(
-  private val dsl: DSLContext
+  private val dsl: DSLContext,
+  @Value("#{@komgaProperties.database.batchChunkSize}") private val batchSize: Int,
 ) : ThumbnailBookRepository {
   private val tb = Tables.THUMBNAIL_BOOK
 
-  override fun findByBookId(bookId: String): Collection<ThumbnailBook> =
+  override fun findAllByBookId(bookId: String): Collection<ThumbnailBook> =
     dsl.selectFrom(tb)
       .where(tb.BOOK_ID.eq(bookId))
       .fetchInto(tb)
       .map { it.toDomain() }
 
-  override fun findByBookIdAndType(bookId: String, type: ThumbnailBook.Type): Collection<ThumbnailBook> =
+  override fun findAllByBookIdAndType(bookId: String, type: ThumbnailBook.Type): Collection<ThumbnailBook> =
     dsl.selectFrom(tb)
       .where(tb.BOOK_ID.eq(bookId))
       .and(tb.TYPE.eq(type.toString()))
       .fetchInto(tb)
       .map { it.toDomain() }
 
-  override fun findSelectedByBookId(bookId: String): ThumbnailBook? =
+  override fun findByIdOrNull(thumbnailId: String): ThumbnailBook? =
+    dsl.selectFrom(tb)
+      .where(tb.ID.eq(thumbnailId))
+      .fetchOneInto(tb)
+      ?.toDomain()
+
+  override fun findSelectedByBookIdOrNull(bookId: String): ThumbnailBook? =
     dsl.selectFrom(tb)
       .where(tb.BOOK_ID.eq(bookId))
       .and(tb.SELECTED.isTrue)
@@ -58,20 +67,19 @@ class ThumbnailBookDao(
       .execute()
   }
 
+  @Transactional
   override fun markSelected(thumbnail: ThumbnailBook) {
-    dsl.transaction { config ->
-      config.dsl().update(tb)
-        .set(tb.SELECTED, false)
-        .where(tb.BOOK_ID.eq(thumbnail.bookId))
-        .and(tb.ID.ne(thumbnail.id))
-        .execute()
+    dsl.update(tb)
+      .set(tb.SELECTED, false)
+      .where(tb.BOOK_ID.eq(thumbnail.bookId))
+      .and(tb.ID.ne(thumbnail.id))
+      .execute()
 
-      config.dsl().update(tb)
-        .set(tb.SELECTED, true)
-        .where(tb.BOOK_ID.eq(thumbnail.bookId))
-        .and(tb.ID.eq(thumbnail.id))
-        .execute()
-    }
+    dsl.update(tb)
+      .set(tb.SELECTED, true)
+      .where(tb.BOOK_ID.eq(thumbnail.bookId))
+      .and(tb.ID.eq(thumbnail.id))
+      .execute()
   }
 
   override fun delete(thumbnailBookId: String) {
@@ -82,8 +90,11 @@ class ThumbnailBookDao(
     dsl.deleteFrom(tb).where(tb.BOOK_ID.eq(bookId)).execute()
   }
 
+  @Transactional
   override fun deleteByBookIds(bookIds: Collection<String>) {
-    dsl.deleteFrom(tb).where(tb.BOOK_ID.`in`(bookIds)).execute()
+    dsl.insertTempStrings(batchSize, bookIds)
+
+    dsl.deleteFrom(tb).where(tb.BOOK_ID.`in`(dsl.selectTempStrings())).execute()
   }
 
   override fun deleteByBookIdAndType(bookId: String, type: ThumbnailBook.Type) {
@@ -102,6 +113,6 @@ class ThumbnailBookDao(
       id = id,
       bookId = bookId,
       createdDate = createdDate,
-      lastModifiedDate = lastModifiedDate
+      lastModifiedDate = lastModifiedDate,
     )
 }

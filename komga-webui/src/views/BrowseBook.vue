@@ -1,6 +1,19 @@
 <template>
   <div v-if="!$_.isEmpty(book)">
     <toolbar-sticky>
+      <v-tooltip bottom :disabled="!isAdmin">
+        <template v-slot:activator="{ on }">
+          <v-btn icon
+                 v-on="on"
+                 :to="parentLocation"
+          >
+            <rtl-icon icon="mdi-arrow-left" rtl="mdi-arrow-right"/>
+          </v-btn>
+        </template>
+        <span v-if="contextReadList">{{ $t('common.go_to_readlist') }}</span>
+        <span v-else>{{ $t('common.go_to_series') }}</span>
+      </v-tooltip>
+
       <!--   Action menu   -->
       <book-actions-menu v-if="book"
                          :book="book"
@@ -14,13 +27,14 @@
 
       <!--   Context notification for navigation   -->
       <v-alert
-        v-if="contextReadList"
+        v-if="contextReadList && $vuetify.breakpoint.mdAndUp"
         type="info"
         text
         dense
         border="right"
         class="mb-0"
-      >{{ $t('browse_book.navigation_within_readlist') }}: {{ contextName }}</v-alert>
+      >{{ $t('browse_book.navigation_within_readlist', {name: contextName}) }}
+      </v-alert>
 
       <!--   Navigate to previous book   -->
       <v-btn
@@ -28,8 +42,7 @@
         :disabled="$_.isEmpty(siblingPrevious)"
         :to="{ name: 'browse-book', params: { bookId: previousId }, query: { context: context.origin, contextId: context.id}  }"
       >
-        <v-icon v-if="$vuetify.rtl">mdi-chevron-right</v-icon>
-        <v-icon v-else>mdi-chevron-left</v-icon>
+        <rtl-icon icon="mdi-chevron-left" rtl="mdi-chevron-right"/>
       </v-btn>
 
       <!--   List of all books in context (series/readlist) for navigation   -->
@@ -53,7 +66,11 @@
               :key="i"
               :to="{ name: 'browse-book', params: { bookId: book.id }, query: { context: context.origin, contextId: context.id} }"
             >
-              <v-list-item-title class="text-wrap text-body-2">{{ book.metadata.number }} - {{ book.metadata.title }}
+              <v-list-item-title class="text-wrap text-body-2">
+                <template v-if="contextReadList">{{ book.seriesTitle }} {{ book.metadata.number }}:
+                  {{ book.metadata.title }}
+                </template>
+                <template v-else>{{ book.metadata.number }} - {{ book.metadata.title }}</template>
               </v-list-item-title>
             </v-list-item>
           </v-list-item-group>
@@ -66,12 +83,24 @@
         :disabled="$_.isEmpty(siblingNext)"
         :to="{ name: 'browse-book', params: { bookId: nextId }, query: { context: context.origin, contextId: context.id}  }"
       >
-        <v-icon v-if="$vuetify.rtl">mdi-chevron-left</v-icon>
-        <v-icon v-else>mdi-chevron-right</v-icon>
+        <rtl-icon icon="mdi-chevron-right" rtl="mdi-chevron-left"/>
       </v-btn>
     </toolbar-sticky>
 
-    <v-container fluid class="px-6">
+    <v-container fluid class="pa-6">
+      <!--   Context notification for navigation   -->
+      <v-row>
+        <v-alert
+          v-if="contextReadList && $vuetify.breakpoint.smAndDown"
+          type="info"
+          text
+          dense
+          border="right"
+          class="mb-0"
+        >{{ $t('browse_book.navigation_within_readlist', {name: contextName}) }}
+        </v-alert>
+      </v-row>
+
       <v-row>
         <v-col cols="4" sm="4" md="auto" lg="auto" xl="auto">
           <item-card
@@ -85,123 +114,274 @@
         </v-col>
 
         <v-col cols="8">
-          <v-row>
-            <v-col class="py-1">
-              <router-link :to="{name:'browse-series', params: {seriesId: book.seriesId}}" class="link-underline">
-                <span class="text-h5" v-if="!$_.isEmpty(series)">{{ series.metadata.title }}</span>
-              </router-link>
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col class="py-1">
-              <div class="text-h6">{{ book.metadata.title }}</div>
-            </v-col>
-          </v-row>
+          <v-container>
+            <v-row>
+              <v-col class="py-1">
+                <router-link
+                  :to="{name:'browse-series', params: {seriesId: book.seriesId}}"
+                  class="link-underline text-h5"
+                >{{ book.seriesTitle }}
+                </router-link>
+                <router-link
+                  class="caption link-underline"
+                  :class="$vuetify.breakpoint.smAndUp ? 'mx-1' : ''"
+                  :style="$vuetify.breakpoint.xsOnly ? 'display: block' : ''"
+                  :to="{name:'browse-libraries', params: {libraryId: book.libraryId }}"
+                >{{ $t('searchbox.in_library', {library: getLibraryName(book)}) }}
+                </router-link>
+              </v-col>
+            </v-row>
+            <v-row>
+              <v-col class="py-1">
+                <div class="text-h6">{{ book.metadata.title }}</div>
+              </v-col>
+            </v-row>
 
-          <v-row class="text-body-2">
-            <v-col>
-              <span class="mx-3">#{{ book.metadata.number }}</span>
-            </v-col>
-            <v-col cols="auto" v-if="book.metadata.releaseDate">
-              {{ book.metadata.releaseDate | moment('MMMM DD, YYYY') }}
-            </v-col>
-          </v-row>
+            <v-row class="text-caption" align="center">
+              <v-col cols="auto" v-if="book.media.status === MediaStatus.UNKNOWN">
+                {{ book.metadata.number }} · {{ $t('book_card.unknown') }}
+              </v-col>
 
-          <v-divider/>
+              <v-col cols="auto" v-else>
+                {{ book.metadata.number }} · {{ $tc('common.pages_n', book.media.pagesCount) }}
+              </v-col>
 
-          <v-row class="mt-3">
-            <v-col>
-              <read-more>{{ book.metadata.summary }}</read-more>
-            </v-col>
-          </v-row>
+              <v-col cols="auto" v-if="book.metadata.releaseDate">
+                {{
+                  new Intl.DateTimeFormat($i18n.locale, {dateStyle: 'long', timeZone: 'UTC'}).format(new Date(book.metadata.releaseDate))
+                }}
+              </v-col>
 
-          <v-row class="text-body-2"
-                 v-for="(names, key) in authorsByRole"
-                 :key="key"
-          >
-            <v-col cols="6" sm="4" md="2" class="py-1 text-uppercase">{{ key }}</v-col>
-            <v-col class="py-1 text-truncate" :title="names.join(', ')">
-              {{ names.join(', ') }}
-            </v-col>
-          </v-row>
+              <v-col class="py-1 pe-0"
+                     cols="auto"
+                     v-if="book.media.status === MediaStatus.OUTDATED">
+                <v-tooltip bottom :disabled="!isAdmin">
+                  <template v-slot:activator="{ on }">
+                    <v-chip label small color="warning" v-on="on">
+                      {{ $t('common.outdated') }}
+                    </v-chip>
+                  </template>
+                  {{ $t('browse_book.outdated_tooltip') }}
+                </v-tooltip>
+              </v-col>
 
-          <v-row v-if="book.metadata.tags.length > 0">
-            <v-col cols="6" sm="4" md="2" class="text-body-2 py-1">TAGS</v-col>
-            <v-col class="text-body-2 text-capitalize py-1">
-              <v-chip v-for="(t, i) in book.metadata.tags"
-                      :key="i"
-                      :class="$vuetify.rtl ? 'ml-2' : 'mr-2'"
-                      label
-                      small
-                      outlined
-              >{{ t }}
-              </v-chip>
-            </v-col>
-          </v-row>
+              <v-col class="py-1 pe-0" cols="auto" v-if="unavailable">
+                <v-chip label small color="error">
+                  {{ $t('common.unavailable') }}
+                </v-chip>
+              </v-col>
+            </v-row>
 
-          <v-row v-if="$vuetify.breakpoint.name !== 'xs'">
-            <v-col>
-              <read-lists-expansion-panels :read-lists="readLists"/>
-            </v-col>
-          </v-row>
+
+            <template v-if="$vuetify.breakpoint.smAndUp">
+              <v-row class="align-center">
+                <v-col cols="auto">
+                  <v-btn color="accent"
+                         small
+                         :title="$t('browse_book.read_book')"
+                         :to="{name: 'read-book', params: { bookId: bookId}, query: { context: context.origin, contextId: context.id}}"
+                         :disabled="!canRead"
+                  >
+                    <v-icon left small>mdi-book-open-page-variant</v-icon>
+                    {{ $t('common.read') }}
+                  </v-btn>
+                </v-col>
+
+                <v-col cols="auto">
+                  <v-btn small
+                         :title="$t('browse_book.read_incognito')"
+                         :to="{name: 'read-book', params: { bookId: bookId}, query: { context: context.origin, contextId: context.id, incognito: true}}"
+                         :disabled="!canRead"
+                  >
+                    <v-icon left small>mdi-incognito</v-icon>
+                    {{ $t('common.read') }}
+                  </v-btn>
+                </v-col>
+
+                <v-col cols="auto">
+                  <v-btn :title="$t('browse_book.download_file')"
+                         small
+                         :disabled="!canDownload"
+                         :href="fileUrl">
+                    <v-icon left small>mdi-file-download</v-icon>
+                    {{ $t('common.download') }}
+                  </v-btn>
+                </v-col>
+              </v-row>
+
+              <v-row v-if="book.metadata.summary">
+                <v-col>
+                  <read-more>{{ book.metadata.summary }}</read-more>
+                </v-col>
+              </v-row>
+            </template>
+          </v-container>
         </v-col>
       </v-row>
 
-      <v-row v-if="$vuetify.breakpoint.name === 'xs'">
-        <v-col class="pt-0 py-1">
+      <template v-if="$vuetify.breakpoint.xsOnly">
+        <v-row class="align-center">
+          <v-col cols="auto">
+            <v-btn color="accent"
+                   small
+                   :title="$t('browse_book.read_book')"
+                   :to="{name: 'read-book', params: { bookId: bookId}, query: { context: context.origin, contextId: context.id}}"
+                   :disabled="!canRead"
+            >
+              <v-icon left small>mdi-book-open-page-variant</v-icon>
+              {{ $t('common.read') }}
+            </v-btn>
+          </v-col>
+
+          <v-col cols="auto">
+            <v-btn small
+                   :title="$t('browse_book.read_incognito')"
+                   :to="{name: 'read-book', params: { bookId: bookId}, query: { context: context.origin, contextId: context.id, incognito: true}}"
+                   :disabled="!canRead"
+            >
+              <v-icon left small>mdi-incognito</v-icon>
+              {{ $t('common.read') }}
+            </v-btn>
+          </v-col>
+
+          <v-col cols="auto">
+            <v-btn :title="$t('browse_book.download_file')"
+                   small
+                   :disabled="!canDownload"
+                   :href="fileUrl">
+              <v-icon left small>mdi-file-download</v-icon>
+              {{ $t('common.download') }}
+            </v-btn>
+          </v-col>
+        </v-row>
+
+        <v-row v-if="book.metadata.summary">
+          <v-col>
+            <read-more>{{ book.metadata.summary }}</read-more>
+          </v-col>
+        </v-row>
+      </template>
+
+      <v-row v-for="role in displayedRoles"
+             :key="role"
+             class="align-center text-caption"
+      >
+        <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">
+          {{ $te(`author_roles.${role}`) ? $t(`author_roles.${role}`) : role }}
+        </v-col>
+        <v-col cols="8" sm="9" md="10" xl="11" class="py-1">
+          <vue-horizontal>
+            <template v-slot:btn-prev>
+              <v-btn icon small>
+                <v-icon>mdi-chevron-left</v-icon>
+              </v-btn>
+            </template>
+
+            <template v-slot:btn-next>
+              <v-btn icon small>
+                <v-icon>mdi-chevron-right</v-icon>
+              </v-btn>
+            </template>
+            <v-chip v-for="(name, i) in authorsByRole[role]"
+                    :key="i"
+                    class="me-2"
+                    :title="name"
+                    :to="{name:'browse-series', params: {seriesId: book.seriesId }, query: {[role]: [name]}}"
+                    label
+                    small
+                    outlined
+                    link
+            >{{ name }}
+            </v-chip>
+          </vue-horizontal>
+        </v-col>
+      </v-row>
+
+      <v-row v-if="book.metadata.tags.length > 0" class="align-center text-caption">
+        <v-col cols="4" sm="3" md="2" xl="1" class="py-1">TAGS</v-col>
+        <v-col cols="8" sm="9" md="10" xl="11" class="py-1 text-capitalize">
+          <vue-horizontal>
+            <template v-slot:btn-prev>
+              <v-btn icon small>
+                <v-icon>mdi-chevron-left</v-icon>
+              </v-btn>
+            </template>
+
+            <template v-slot:btn-next>
+              <v-btn icon small>
+                <v-icon>mdi-chevron-right</v-icon>
+              </v-btn>
+            </template>
+            <v-chip v-for="(t, i) in book.metadata.tags"
+                    :key="i"
+                    class="me-2"
+                    :title="t"
+                    :to="{name:'browse-series', params: {seriesId: book.seriesId}, query: {tag: [t]}}"
+                    label
+                    small
+                    outlined
+                    link
+            >{{ t }}
+            </v-chip>
+          </vue-horizontal>
+        </v-col>
+      </v-row>
+
+      <v-row>
+        <v-col>
           <read-lists-expansion-panels :read-lists="readLists"/>
         </v-col>
       </v-row>
 
-      <v-row align="center">
-        <v-col cols="auto">
-          <v-btn icon
-                 :title="$t('browse_book.download_file')"
-                 class="pb-1"
-                 :disabled="!canDownload"
-                 :href="fileUrl">
-            <v-icon>mdi-file-download</v-icon>
-          </v-btn>
-        </v-col>
-        <v-col cols="auto">
-          <v-btn icon
-                 color="accent"
-                 :title="$t('browse_book.read_book')"
-                 class="pb-1"
-                 :to="{name: 'read-book', params: { bookId: bookId}, query: { context: context.origin, contextId: context.id}}"
-                 :disabled="book.media.status !== 'READY' || !canReadPages"
+      <v-row v-if="book.metadata.links.length > 0" class="align-center text-caption">
+        <v-col class="py-1" cols="4" sm="3" md="2" xl="1">{{ $t('browse_book.links') }}</v-col>
+        <v-col class="py-1" cols="8" sm="9" md="10" xl="11">
+          <v-chip
+            v-for="(link, i) in book.metadata.links"
+            :href="link.url"
+            target="_blank"
+            class="me-2"
+            label
+            small
+            outlined
+            link
+            :key="i"
           >
-            <v-icon>mdi-book-open-page-variant</v-icon>
-          </v-btn>
-        </v-col>
-        <v-col cols="auto">
-          <v-icon class="mx-2 pb-1">mdi-book-open</v-icon>
-          <span class="text-body-2">{{ book.media.pagesCount }} {{ $t('common.pages') }}</span>
-        </v-col>
-      </v-row>
-
-      <v-row>
-        <v-col cols="2" md="2" lg="2" xl="1" class="text-body-2">{{ $t('browse_book.size') }}</v-col>
-        <v-col cols="10" class="text-body-2">{{ book.size }}</v-col>
-      </v-row>
-
-      <v-row v-if="book.media.comment">
-        <v-col cols="2" md="2" lg="2" xl="1" class="text-body-2">{{ $t('browse_book.comment') }}</v-col>
-        <v-col cols="10" class="text-body-2">
-          <span class="error--text font-weight-bold">{{ book.media.comment }}</span>
+            {{ link.label }}
+            <v-icon
+              x-small
+              color="grey"
+              class="ps-1"
+            >
+              mdi-open-in-new
+            </v-icon>
+          </v-chip>
         </v-col>
       </v-row>
 
-      <v-row>
-        <v-col cols="2" md="2" lg="2" xl="1" class="text-body-2">{{ $t('browse_book.format') }}</v-col>
-        <v-col cols="10" class="text-body-2">
-          <span>{{ format.type }}</span>
-        </v-col>
+      <v-row class="align-center text-caption">
+        <v-col class="py-1" cols="4" sm="3" md="2" xl="1">{{ $t('browse_book.size') }}</v-col>
+        <v-col class="py-1" cols="8" sm="9" md="10" xl="11">{{ book.size }}</v-col>
       </v-row>
 
-      <v-row align="center">
-        <v-col cols="2" md="2" lg="2" xl="1" class="text-body-2">{{ $t('browse_book.file') }}</v-col>
-        <v-col cols="10" class="text-body-2">{{ book.url }}</v-col>
+      <v-row v-if="book.media.comment" class="align-center text-caption">
+        <v-col class="py-1" cols="4" sm="3" md="2" xl="1">{{ $t('browse_book.comment') }}</v-col>
+        <v-col class="py-1 error--text font-weight-bold" cols="8" sm="9" md="10" xl="11">{{ mediaComment }}</v-col>
+      </v-row>
+
+      <v-row class="align-center text-caption">
+        <v-col class="py-1" cols="4" sm="3" md="2" xl="1">{{ $t('browse_book.format') }}</v-col>
+        <v-col class="py-1" cols="8" sm="9" md="10" xl="11">{{ format.type }}</v-col>
+      </v-row>
+
+      <v-row v-if="book.metadata.isbn" class="align-center text-caption">
+        <v-col class="py-1" cols="4" sm="3" md="2" xl="1">{{ $t('browse_book.isbn') }}</v-col>
+        <v-col class="py-1" cols="8" sm="9" md="10" xl="11">{{ book.metadata.isbn }}</v-col>
+      </v-row>
+
+      <v-row class="align-center text-caption">
+        <v-col class="py-1" cols="4" sm="3" md="2" xl="1">{{ $t('browse_book.file') }}</v-col>
+        <v-col class="py-1" cols="8" sm="9" md="10" xl="11">{{ book.url }}</v-col>
       </v-row>
 
     </v-container>
@@ -213,27 +393,41 @@
 import BookActionsMenu from '@/components/menus/BookActionsMenu.vue'
 import ItemCard from '@/components/ItemCard.vue'
 import ToolbarSticky from '@/components/bars/ToolbarSticky.vue'
-import {groupAuthorsByRolePlural} from '@/functions/authors'
+import {groupAuthorsByRole} from '@/functions/authors'
 import {getBookFormatFromMediaType} from '@/functions/book-format'
 import {getReadProgress, getReadProgressPercentage} from '@/functions/book-progress'
 import {getBookTitleCompact} from '@/functions/book-title'
 import {bookFileUrl, bookThumbnailUrl} from '@/functions/urls'
-import {ReadStatus} from '@/types/enum-books'
-import {BOOK_CHANGED, LIBRARY_DELETED} from '@/types/events'
+import {MediaStatus, ReadStatus} from '@/types/enum-books'
+import {
+  BOOK_CHANGED,
+  BOOK_DELETED,
+  LIBRARY_DELETED,
+  READLIST_ADDED,
+  READLIST_CHANGED,
+  READLIST_DELETED,
+  READPROGRESS_CHANGED,
+  READPROGRESS_DELETED,
+} from '@/types/events'
 import Vue from 'vue'
 import ReadListsExpansionPanels from '@/components/ReadListsExpansionPanels.vue'
 import {BookDto, BookFormat} from '@/types/komga-books'
 import {Context, ContextOrigin} from '@/types/context'
-import {SeriesDto} from "@/types/komga-series";
-import ReadMore from "@/components/ReadMore.vue";
+import ReadMore from '@/components/ReadMore.vue'
+import VueHorizontal from 'vue-horizontal'
+import {authorRoles} from '@/types/author-roles'
+import {convertErrorCodes} from '@/functions/error-codes'
+import RtlIcon from '@/components/RtlIcon.vue'
+import {BookSseDto, LibrarySseDto, ReadListSseDto, ReadProgressSseDto} from '@/types/komga-sse'
+import {RawLocation} from 'vue-router/types/router'
 
 export default Vue.extend({
   name: 'BrowseBook',
-  components: {ReadMore, ToolbarSticky, ItemCard, BookActionsMenu, ReadListsExpansionPanels },
+  components: {ReadMore, ToolbarSticky, ItemCard, BookActionsMenu, ReadListsExpansionPanels, VueHorizontal, RtlIcon},
   data: () => {
     return {
+      MediaStatus,
       book: {} as BookDto,
-      series: {} as SeriesDto,
       context: {} as Context,
       contextName: '',
       siblings: [] as BookDto[],
@@ -242,14 +436,26 @@ export default Vue.extend({
       readLists: [] as ReadListDto[],
     }
   },
-  async created () {
+  async created() {
     this.loadBook(this.bookId)
-    this.$eventHub.$on(BOOK_CHANGED, this.reloadBook)
+    this.$eventHub.$on(BOOK_CHANGED, this.bookChanged)
+    this.$eventHub.$on(BOOK_DELETED, this.bookDeleted)
+    this.$eventHub.$on(READPROGRESS_CHANGED, this.readProgressChanged)
+    this.$eventHub.$on(READPROGRESS_DELETED, this.readProgressChanged)
     this.$eventHub.$on(LIBRARY_DELETED, this.libraryDeleted)
+    this.$eventHub.$on(READLIST_ADDED, this.readListChanged)
+    this.$eventHub.$on(READLIST_CHANGED, this.readListChanged)
+    this.$eventHub.$on(READLIST_DELETED, this.readListChanged)
   },
-  beforeDestroy () {
-    this.$eventHub.$off(BOOK_CHANGED, this.reloadBook)
+  beforeDestroy() {
+    this.$eventHub.$off(BOOK_CHANGED, this.bookChanged)
+    this.$eventHub.$off(BOOK_DELETED, this.bookDeleted)
+    this.$eventHub.$off(READPROGRESS_CHANGED, this.readProgressChanged)
+    this.$eventHub.$off(READPROGRESS_DELETED, this.readProgressChanged)
     this.$eventHub.$off(LIBRARY_DELETED, this.libraryDeleted)
+    this.$eventHub.$off(READLIST_ADDED, this.readListChanged)
+    this.$eventHub.$off(READLIST_CHANGED, this.readListChanged)
+    this.$eventHub.$off(READLIST_DELETED, this.readListChanged)
   },
   props: {
     bookId: {
@@ -257,7 +463,7 @@ export default Vue.extend({
       required: true,
     },
   },
-  async beforeRouteUpdate (to, from, next) {
+  async beforeRouteUpdate(to, from, next) {
     if (to.params.bookId !== from.params.bookId) {
       this.loadBook(to.params.bookId)
     }
@@ -265,61 +471,93 @@ export default Vue.extend({
     next()
   },
   computed: {
-    isAdmin (): boolean {
+    isAdmin(): boolean {
       return this.$store.getters.meAdmin
     },
-    canReadPages (): boolean {
-      return this.$store.getters.mePageStreaming
+    unavailable(): boolean {
+      return this.book.deleted || this.$store.getters.getLibraryById(this.book.libraryId).unavailable
     },
-    canDownload (): boolean {
-      return this.$store.getters.meFileDownload
+    canRead(): boolean {
+      return this.book.media.status === 'READY' && this.$store.getters.mePageStreaming && !this.unavailable
     },
-    thumbnailUrl (): string {
+    canDownload(): boolean {
+      return this.$store.getters.meFileDownload && !this.unavailable
+    },
+    thumbnailUrl(): string {
       return bookThumbnailUrl(this.bookId)
     },
-    fileUrl (): string {
+    fileUrl(): string {
       return bookFileUrl(this.bookId)
     },
-    format (): BookFormat {
+    format(): BookFormat {
       return getBookFormatFromMediaType(this.book.media.mediaType)
     },
-    authorsByRole (): any {
-      return groupAuthorsByRolePlural(this.book.metadata.authors)
+    authorsByRole(): any {
+      return groupAuthorsByRole(this.book.metadata.authors)
     },
-    isRead (): boolean {
+    isRead(): boolean {
       return getReadProgress(this.book) === ReadStatus.READ
     },
-    isUnread (): boolean {
+    isUnread(): boolean {
       return getReadProgress(this.book) === ReadStatus.UNREAD
     },
-    isInProgress (): boolean {
+    isInProgress(): boolean {
       return getReadProgress(this.book) === ReadStatus.IN_PROGRESS
     },
-    readProgressPercentage (): number {
+    readProgressPercentage(): number {
       return getReadProgressPercentage(this.book)
     },
-    previousId (): string {
+    previousId(): string {
       return this.siblingPrevious?.id?.toString() || '0'
     },
-    nextId (): string {
+    nextId(): string {
       return this.siblingNext?.id?.toString() || '0'
     },
-    contextReadList (): boolean {
+    contextReadList(): boolean {
       return this.context.origin === ContextOrigin.READLIST
+    },
+    mediaComment(): string {
+      return convertErrorCodes(this.book.media.comment)
+    },
+    parentLocation(): RawLocation {
+      if (this.contextReadList)
+        return {name: 'browse-readlist', params: {readListId: this.context.id}}
+      else
+        return {name: 'browse-series', params: {seriesId: this.book.seriesId}}
+    },
+    displayedRoles(): string[] {
+      const allRoles = this.$_.uniq([...authorRoles, ...(this.book.metadata.authors.map(x => x.role))])
+      return allRoles.filter(x => this.authorsByRole[x])
     },
   },
   methods: {
-    libraryDeleted (event: EventLibraryDeleted) {
-      if (event.id === this.book.libraryId) {
-        this.$router.push({ name: 'home' })
+    getLibraryName(item: BookDto): string {
+      return this.$store.getters.getLibraryById(item.libraryId).name
+    },
+    libraryDeleted(event: LibrarySseDto) {
+      if (event.libraryId === this.book.libraryId) {
+        this.$router.push({name: 'home'})
       }
     },
-    reloadBook (event: EventBookChanged) {
-      if (event.id === this.bookId) this.loadBook(this.bookId)
+    readListChanged(event: ReadListSseDto) {
+      if (event.bookIds.includes(this.bookId) || this.readLists.map(x => x.id).includes(event.readListId)) {
+        this.$komgaBooks.getReadLists(this.bookId)
+          .then(v => this.readLists = v)
+      }
     },
-    async loadBook (bookId: string) {
+    bookChanged(event: BookSseDto) {
+      if (event.bookId === this.bookId) this.loadBook(this.bookId)
+    },
+    bookDeleted(event: BookSseDto) {
+      if (event.bookId === this.bookId) {
+        this.$router.push({name: 'browse-series', params: {seriesId: this.book.seriesId}})
+      }
+    },
+    readProgressChanged(event: ReadProgressSseDto) {
+      if (event.bookId === this.bookId) this.loadBook(this.bookId)
+    },
+    async loadBook(bookId: string) {
       this.book = await this.$komgaBooks.getBook(bookId)
-      this.series = await this.$komgaSeries.getOneSeries(this.book.seriesId)
 
       // parse query params to get context and contextId
       if (this.$route.query.contextId && this.$route.query.context
@@ -329,48 +567,52 @@ export default Vue.extend({
           id: this.$route.query.contextId as string,
         }
         this.book.context = this.context
-        this.contextName = (await (this.$komgaReadLists.getOneReadList(this.context.id))).name
+        this.$komgaReadLists.getOneReadList(this.context.id)
+          .then(v => this.contextName = v.name)
       }
 
       // Get siblings depending on origin
       if (this?.context.origin === ContextOrigin.READLIST) {
-        this.siblings = (await this.$komgaReadLists.getBooks(this.context.id, { unpaged: true } as PageRequest)).content
+        this.$komgaReadLists.getBooks(this.context.id, {unpaged: true} as PageRequest)
+          .then(v => this.siblings = v.content)
       } else {
-        this.siblings = (await this.$komgaSeries.getBooks(this.book.seriesId, { unpaged: true } as PageRequest)).content
+        this.$komgaSeries.getBooks(this.book.seriesId, {unpaged: true} as PageRequest)
+          .then(v => this.siblings = v.content)
       }
 
-      this.readLists = await this.$komgaBooks.getReadLists(this.bookId)
+      this.$komgaBooks.getReadLists(this.bookId)
+        .then(v => this.readLists = v)
 
       if (this.$_.has(this.book, 'metadata.title')) {
-        document.title = `Komga - ${getBookTitleCompact(this.book.metadata.title, this.series.metadata.title)}`
+        document.title = `Komga - ${getBookTitleCompact(this.book.metadata.title, this.book.seriesTitle)}`
       }
 
-      try {
-        if (this?.context.origin === ContextOrigin.READLIST) {
-          this.siblingNext = await this.$komgaReadLists.getBookSiblingNext(this.context.id, bookId)
-        } else {
-          this.siblingNext = await this.$komgaBooks.getBookSiblingNext(bookId)
-        }
-      } catch (e) {
-        this.siblingNext = {} as BookDto
+      if (this?.context.origin === ContextOrigin.READLIST) {
+        this.$komgaReadLists.getBookSiblingNext(this.context.id, bookId)
+          .then(v => this.siblingNext = v)
+          .catch(e => this.siblingNext = {} as BookDto)
+      } else {
+        this.$komgaBooks.getBookSiblingNext(bookId)
+          .then(v => this.siblingNext = v)
+          .catch(e => this.siblingNext = {} as BookDto)
       }
-      try {
-        if (this?.context.origin === ContextOrigin.READLIST) {
-          this.siblingPrevious = await this.$komgaReadLists.getBookSiblingPrevious(this.context.id, bookId)
-        } else {
-          this.siblingPrevious = await this.$komgaBooks.getBookSiblingPrevious(bookId)
-        }
-      } catch (e) {
-        this.siblingPrevious = {} as BookDto
+      if (this?.context.origin === ContextOrigin.READLIST) {
+        this.$komgaReadLists.getBookSiblingPrevious(this.context.id, bookId)
+          .then(v => this.siblingPrevious = v)
+          .catch(e => this.siblingPrevious = {} as BookDto)
+      } else {
+        this.$komgaBooks.getBookSiblingPrevious(bookId)
+          .then(v => this.siblingPrevious = v)
+          .catch(e => this.siblingPrevious = {} as BookDto)
       }
     },
-    analyze () {
+    analyze() {
       this.$komgaBooks.analyzeBook(this.book)
     },
-    refreshMetadata () {
+    refreshMetadata() {
       this.$komgaBooks.refreshMetadata(this.book)
     },
-    editBook () {
+    editBook() {
       this.$store.dispatch('dialogUpdateBooks', this.book)
     },
   },

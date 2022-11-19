@@ -27,7 +27,7 @@ class ReadProgressDaoTest(
   @Autowired private val userRepository: KomgaUserRepository,
   @Autowired private val bookRepository: BookRepository,
   @Autowired private val seriesRepository: SeriesRepository,
-  @Autowired private val libraryRepository: LibraryRepository
+  @Autowired private val libraryRepository: LibraryRepository,
 ) {
   private val library = makeLibrary()
   private val series = makeSeries("Series")
@@ -70,20 +70,21 @@ class ReadProgressDaoTest(
         book1.id,
         user1.id,
         5,
-        false
-      )
+        false,
+      ),
     )
 
-    val readProgressList = readProgressDao.findByUserId(user1.id)
+    val readProgressList = readProgressDao.findAllByUserId(user1.id)
 
     assertThat(readProgressList).hasSize(1)
     with(readProgressList.first()) {
       assertThat(page).isEqualTo(5)
       assertThat(completed).isEqualTo(false)
       assertThat(bookId).isEqualTo(book1.id)
+      assertThat(readDate).isCloseTo(now, offset)
       assertThat(createdDate)
         .isCloseTo(now, offset)
-        .isEqualTo(lastModifiedDate)
+        .isEqualToIgnoringNanos(lastModifiedDate)
     }
   }
 
@@ -94,28 +95,31 @@ class ReadProgressDaoTest(
         book1.id,
         user1.id,
         5,
-        false
-      )
+        false,
+      ),
     )
 
     val modificationDate = LocalDateTime.now()
+    val readDateInThePast = LocalDateTime.now().minusYears(1)
 
     readProgressDao.save(
       ReadProgress(
         book1.id,
         user1.id,
         10,
-        true
-      )
+        true,
+        readDate = readDateInThePast,
+      ),
     )
 
-    val readProgressList = readProgressDao.findByUserId(user1.id)
+    val readProgressList = readProgressDao.findAllByUserId(user1.id)
 
     assertThat(readProgressList).hasSize(1)
     with(readProgressList.first()) {
       assertThat(page).isEqualTo(10)
       assertThat(completed).isEqualTo(true)
       assertThat(bookId).isEqualTo(book1.id)
+      assertThat(readDate).isEqualToIgnoringNanos(readDateInThePast)
       assertThat(createdDate)
         .isBefore(modificationDate)
         .isNotEqualTo(lastModifiedDate)

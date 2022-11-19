@@ -1,4 +1,5 @@
 import {AxiosInstance} from 'axios'
+import {AuthorDto} from '@/types/komga-books'
 
 const qs = require('qs')
 const tags = require('language-tags')
@@ -6,19 +7,23 @@ const tags = require('language-tags')
 export default class KomgaReferentialService {
   private http: AxiosInstance
 
-  constructor (http: AxiosInstance) {
+  constructor(http: AxiosInstance) {
     this.http = http
   }
 
-  async getAuthors (search?: string): Promise<string[]> {
+  async getAuthors(search?: string, role?: string, libraryId?: string, collectionId?: string, seriesId?: string, readListId?: string): Promise<Page<AuthorDto>> {
     try {
       const params = {} as any
-      if (search) {
-        params.search = search
-      }
-      return (await this.http.get('/api/v1/authors', {
+      if (search) params.search = search
+      if (role) params.role = role
+      if (libraryId) params.library_id = libraryId
+      if (collectionId) params.collection_id = collectionId
+      if (seriesId) params.series_id = seriesId
+      if (readListId) params.readlist_id = readListId
+
+      return (await this.http.get('/api/v2/authors', {
         params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
       })).data
     } catch (e) {
       let msg = 'An error occurred while trying to retrieve authors'
@@ -29,7 +34,26 @@ export default class KomgaReferentialService {
     }
   }
 
-  async getGenres (libraryId?: string, collectionId?: string): Promise<string[]> {
+  async getAuthorsNames(search?: string): Promise<string[]> {
+    try {
+      const params = {} as any
+      if (search) {
+        params.search = search
+      }
+      return (await this.http.get('/api/v1/authors/names', {
+        params: params,
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
+      })).data
+    } catch (e) {
+      let msg = 'An error occurred while trying to retrieve authors names'
+      if (e.response.data.message) {
+        msg += `: ${e.response.data.message}`
+      }
+      throw new Error(msg)
+    }
+  }
+
+  async getGenres(libraryId?: string, collectionId?: string): Promise<string[]> {
     try {
       const params = {} as any
       if (libraryId) params.library_id = libraryId
@@ -37,7 +61,7 @@ export default class KomgaReferentialService {
 
       return (await this.http.get('/api/v1/genres', {
         params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
       })).data
     } catch (e) {
       let msg = 'An error occurred while trying to retrieve genres'
@@ -48,17 +72,9 @@ export default class KomgaReferentialService {
     }
   }
 
-  async getTags (libraryId?: string, seriesId?: string, collectionId?: string): Promise<string[]> {
+  async getTags(): Promise<string[]> {
     try {
-      const params = {} as any
-      if (libraryId) params.library_id = libraryId
-      if (seriesId) params.series_id = seriesId
-      if (collectionId) params.collection_id = collectionId
-
-      return (await this.http.get('/api/v1/tags', {
-        params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
-      })).data
+      return (await this.http.get('/api/v1/tags')).data
     } catch (e) {
       let msg = 'An error occurred while trying to retrieve tags'
       if (e.response.data.message) {
@@ -68,7 +84,64 @@ export default class KomgaReferentialService {
     }
   }
 
-  async getPublishers (libraryId?: string, collectionId?: string): Promise<string[]> {
+  async getSharingLabels(libraryId?: string, collectionId?: string): Promise<string[]> {
+    try {
+      const params = {} as any
+      if (libraryId) params.library_id = libraryId
+      if (collectionId) params.collection_id = collectionId
+
+      return (await this.http.get('/api/v1/sharing-labels', {
+        params: params,
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
+      })).data
+    } catch (e) {
+      let msg = 'An error occurred while trying to retrieve sharing labels'
+      if (e.response.data.message) {
+        msg += `: ${e.response.data.message}`
+      }
+      throw new Error(msg)
+    }
+  }
+
+  async getSeriesAndBookTags(libraryId?: string, collectionId?: string): Promise<string[]> {
+    try {
+      const params = {} as any
+      if (libraryId) params.library_id = libraryId
+      if (collectionId) params.collection_id = collectionId
+
+      return (await this.http.get('/api/v1/tags', {
+        params: params,
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
+      })).data
+    } catch (e) {
+      let msg = 'An error occurred while trying to retrieve series and book tags'
+      if (e.response.data.message) {
+        msg += `: ${e.response.data.message}`
+      }
+      throw new Error(msg)
+    }
+  }
+
+  async getBookTags(seriesId?: string, readListId?: string): Promise<string[]> {
+    try {
+      const params = {} as any
+      if (seriesId) params.series_id = seriesId
+      if (readListId) params.readlist_id = readListId
+
+      return (await this.http.get('/api/v1/tags/book', {
+        params: params,
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
+      })).data
+    } catch (e) {
+      let msg = 'An error occurred while trying to retrieve book tags'
+      if (e.response.data.message) {
+        msg += `: ${e.response.data.message}`
+      }
+      throw new Error(msg)
+    }
+  }
+
+  async getPublishers(libraryId?: string, collectionId?: string): Promise<string[]> {
     try {
       const params = {} as any
       if (libraryId) params.library_id = libraryId
@@ -76,7 +149,7 @@ export default class KomgaReferentialService {
 
       return (await this.http.get('/api/v1/publishers', {
         params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
       })).data
     } catch (e) {
       let msg = 'An error occurred while trying to retrieve publishers'
@@ -87,7 +160,7 @@ export default class KomgaReferentialService {
     }
   }
 
-  async getAgeRatings (libraryId?: string, collectionId?: string): Promise<string[]> {
+  async getAgeRatings(libraryId?: string, collectionId?: string): Promise<string[]> {
     try {
       const params = {} as any
       if (libraryId) params.library_id = libraryId
@@ -95,7 +168,7 @@ export default class KomgaReferentialService {
 
       return (await this.http.get('/api/v1/age-ratings', {
         params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
       })).data
     } catch (e) {
       let msg = 'An error occurred while trying to retrieve age ratings'
@@ -106,7 +179,7 @@ export default class KomgaReferentialService {
     }
   }
 
-  async getSeriesReleaseDates (libraryId?: string, collectionId?: string): Promise<string[]> {
+  async getSeriesReleaseDates(libraryId?: string, collectionId?: string): Promise<string[]> {
     try {
       const params = {} as any
       if (libraryId) params.library_id = libraryId
@@ -114,7 +187,7 @@ export default class KomgaReferentialService {
 
       return (await this.http.get('/api/v1/series/release-dates', {
         params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
       })).data
     } catch (e) {
       let msg = 'An error occurred while trying to retrieve series release dates'
@@ -125,7 +198,7 @@ export default class KomgaReferentialService {
     }
   }
 
-  async getLanguages (libraryId?: string, collectionId?: string): Promise<NameValue[]> {
+  async getLanguages(libraryId?: string, collectionId?: string): Promise<NameValue[]> {
     try {
       const params = {} as any
       if (libraryId) params.library_id = libraryId
@@ -133,14 +206,14 @@ export default class KomgaReferentialService {
 
       const data = (await this.http.get('/api/v1/languages', {
         params: params,
-        paramsSerializer: params => qs.stringify(params, { indices: false }),
+        paramsSerializer: params => qs.stringify(params, {indices: false}),
       })).data
       const ret = [] as NameValue[]
       for (const code of data) {
         const tag = tags(code)
         if (tag.valid()) {
           const name = tag.language().descriptions()[0] + ` (${code})`
-          ret.push({ name: name, value: code })
+          ret.push({name: name, value: code})
         }
       }
       return ret

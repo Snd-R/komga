@@ -7,14 +7,12 @@
       <v-btn icon
              :disabled="!canScrollBackward"
              @click="doScroll('backward')">
-        <v-icon v-if="$vuetify.rtl">mdi-chevron-right</v-icon>
-        <v-icon v-else>mdi-chevron-left</v-icon>
+        <rtl-icon icon="mdi-chevron-left" rtl="mdi-chevron-right"/>
       </v-btn>
       <v-btn icon
              :disabled="!canScrollForward"
              @click="doScroll('forward')">
-        <v-icon v-if="$vuetify.rtl">mdi-chevron-left</v-icon>
-        <v-icon v-else>mdi-chevron-right</v-icon>
+        <rtl-icon icon="mdi-chevron-right" rtl="mdi-chevron-left"/>
       </v-btn>
     </div>
 
@@ -24,16 +22,21 @@
          @scroll="computeScrollability"
          v-resize="computeScrollability"
     >
-      <slot name="content" class="content"/>
+      <div class="d-inline-flex" v-mutate="computeScrollability">
+        <slot name="content" class="content"/>
+        <slot name="content-append"/>
+      </div>
     </div>
   </div>
 </template>
 
 <script lang="ts">
 import Vue from 'vue'
+import RtlIcon from '@/components/RtlIcon.vue'
 
 export default Vue.extend({
   name: 'HorizontalScroller',
+  components: {RtlIcon},
   data: function () {
     const uniqueId = this.$_.uniqueId()
     return {
@@ -44,20 +47,35 @@ export default Vue.extend({
       adjustment: 100,
     }
   },
+  props: {
+    tick: {
+      type: Number,
+      default: 0,
+    },
+  },
   mounted() {
     this.container = this.$refs[this.id] as HTMLElement
     this.computeScrollability()
   },
+  watch: {
+    tick() {
+      setTimeout(this.computeScrollability, 200)
+    },
+  },
   methods: {
     computeScrollability() {
-      if (this.container !== undefined) {
+      if (this.container) {
+        let scrollPercent: number
         if (this.$vuetify.rtl) {
           this.canScrollBackward = Math.round(this.container.scrollLeft) < 0
           this.canScrollForward = (Math.round(this.container.scrollLeft) - this.container.clientWidth) > -this.container.scrollWidth
+          scrollPercent = (Math.round(this.container.scrollLeft) - this.container.clientWidth) / -this.container.scrollWidth
         } else {
           this.canScrollBackward = Math.round(this.container.scrollLeft) > 0
           this.canScrollForward = (Math.round(this.container.scrollLeft) + this.container.clientWidth) < this.container.scrollWidth
+          scrollPercent = (Math.round(this.container.scrollLeft) + this.container.clientWidth) / this.container.scrollWidth
         }
+        this.$emit('scroll-changed', scrollPercent)
       }
     },
     doScroll(direction: string) {
@@ -65,7 +83,7 @@ export default Vue.extend({
         let increment = (this.container.clientWidth - this.adjustment)
         let scrollLeft = Math.round(this.container.scrollLeft)
         let target
-        if (this.$vuetify.rtl){
+        if (this.$vuetify.rtl) {
           if (direction === 'backward')
             target = scrollLeft + increment
           else
@@ -93,6 +111,7 @@ export default Vue.extend({
   display: flex;
   flex-wrap: nowrap;
   overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .scrolling-wrapper::-webkit-scrollbar {
