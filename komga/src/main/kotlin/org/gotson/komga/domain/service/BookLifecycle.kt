@@ -25,6 +25,7 @@ import org.gotson.komga.domain.persistence.ThumbnailBookRepository
 import org.gotson.komga.infrastructure.hash.Hasher
 import org.gotson.komga.infrastructure.image.ImageConverter
 import org.gotson.komga.infrastructure.image.ImageType
+import org.gotson.komga.infrastructure.image.ImageUpscaler
 import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 import java.io.File
@@ -53,6 +54,7 @@ class BookLifecycle(
   private val transactionTemplate: TransactionTemplate,
   private val hasher: Hasher,
   private val historicalEventRepository: HistoricalEventRepository,
+  private val upscaler: ImageUpscaler,
 ) {
 
   fun analyzeAndPersist(book: Book): Boolean {
@@ -114,6 +116,7 @@ class BookLifecycle(
         thumbnailBookRepository.deleteByBookIdAndType(thumbnail.bookId, ThumbnailBook.Type.GENERATED)
         thumbnailBookRepository.insert(thumbnail.copy(selected = false))
       }
+
       ThumbnailBook.Type.SIDECAR -> {
         // delete existing thumbnail with the same url
         thumbnailBookRepository.findAllByBookIdAndType(thumbnail.bookId, ThumbnailBook.Type.SIDECAR)
@@ -123,6 +126,7 @@ class BookLifecycle(
           }
         thumbnailBookRepository.insert(thumbnail.copy(selected = false))
       }
+
       ThumbnailBook.Type.USER_UPLOADED -> {
         thumbnailBookRepository.insert(thumbnail.copy(selected = false))
       }
@@ -134,6 +138,7 @@ class BookLifecycle(
         val selectedThumbnail = thumbnailBookRepository.findSelectedByBookIdOrNull(thumbnail.bookId)
         selectedThumbnail == null || selectedThumbnail.type == ThumbnailBook.Type.GENERATED
       }
+
       MarkSelectedPreference.NO -> false
     }
 
@@ -203,6 +208,7 @@ class BookLifecycle(
         logger.info { "More than one thumbnail is selected, removing extra ones" }
         thumbnailBookRepository.markSelected(selected[0])
       }
+
       selected.isEmpty() && all.isNotEmpty() -> {
         logger.info { "Book has no selected thumbnail, choosing one automatically" }
         thumbnailBookRepository.markSelected(all.first())
@@ -215,7 +221,7 @@ class BookLifecycle(
     MediaNotReadyException::class,
     IndexOutOfBoundsException::class,
   )
-  fun getBookPage(book: Book, number: Int, convertTo: ImageType? = null, resizeTo: Int? = null): BookPageContent {
+  fun getBookPage(book: Book, number: Int, convertTo: ImageType? = null, upscale: Boolean = false, resizeTo: Int? = null): BookPageContent {
     val media = mediaRepository.findById(book.id)
     val pageContent = bookAnalyzer.getPageContent(BookWithMedia(book, mediaRepository.findById(book.id)), number)
     val pageMediaType = media.pages[number - 1].mediaType
@@ -230,7 +236,13 @@ class BookLifecycle(
       }
       return BookPageContent(number, convertedPage, targetFormat.mediaType)
     } else {
-      convertTo?.let {
+
+      val upscaled = if (upscale)
+        BookPageContent(number, upscaler.upscale(pageContent), pageMediaType)
+      else null
+
+      val converted = convertTo?.let {
+        val content = upscaled?.content ?: pageContent
         val msg = "Convert page #$number of book $book from $pageMediaType to ${it.mediaType}"
         if (!imageConverter.supportedReadMediaTypes.contains(pageMediaType)) {
           throw ImageConversionException("$msg: unsupported read format $pageMediaType")
@@ -240,20 +252,21 @@ class BookLifecycle(
         }
         if (pageMediaType == it.mediaType) {
           logger.warn { "$msg: same format, no need for conversion" }
-          return@let
+          return@let null
         }
 
         logger.info { msg }
         val convertedPage = try {
-          imageConverter.convertImage(pageContent, it.imageIOFormat)
+          imageConverter.convertImage(content, it.imageIOFormat)
         } catch (e: Exception) {
           logger.error(e) { "$msg: conversion failed" }
           throw e
         }
-        return BookPageContent(number, convertedPage, it.mediaType)
-      }
 
-      return BookPageContent(number, pageContent, pageMediaType)
+        return@let BookPageContent(number, convertedPage, it.mediaType)
+      } ?: upscaled
+
+      return converted ?: BookPageContent(number, pageContent, pageMediaType)
     }
   }
 

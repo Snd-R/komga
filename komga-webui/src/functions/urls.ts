@@ -32,7 +32,7 @@ export function bookPageUrl(bookId: string, page: number, convertTo?: string, up
     url += `?convert=${convertTo}`
   }
   if(upscale){
-    url +=`?upscale=true`
+    url +='?upscale=true'
   }
   return url
 }
